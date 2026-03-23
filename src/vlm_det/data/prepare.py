@@ -18,6 +18,11 @@ VISIBILITY_MAP = {
     "1": "occluded",
 }
 
+# Some paper figures are extremely large. During data preparation we only need
+# image metadata such as width/height, so disable Pillow's decompression bomb
+# guard here to avoid aborting on legitimate oversized figures.
+Image.MAX_IMAGE_PIXELS = None
+
 
 def _clip(value: float, lower: float, upper: float) -> float:
     return min(max(float(value), lower), upper)

@@ -18,8 +18,11 @@ model:
     - merger
     - projector
     - multi_modal_projector
-  min_pixels: null
-  max_pixels: null
+  # 受控动态分辨率，而不是原生大图直接输入。
+  # full FT 在两张 3090 上更容易被显存和长输出一起放大，因此像素预算
+  # 比 LoRA 更保守一些。
+  min_pixels: 200704
+  max_pixels: 802816
 
 tokenizer:
   num_bins: 2048

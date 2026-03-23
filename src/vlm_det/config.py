@@ -28,8 +28,11 @@ class ModelConfig:
     projector_name_substrings: list[str] = field(
         default_factory=lambda: ["merger", "projector", "multi_modal_projector"]
     )
-    min_pixels: int | None = None
-    max_pixels: int | None = None
+    # Use bounded dynamic resolution instead of raw native resolution.
+    # These values follow the Qwen-style pixel-budget approach and act as
+    # sane defaults when configs do not override them explicitly.
+    min_pixels: int | None = 200704
+    max_pixels: int | None = 1003520
 
 
 @dataclass

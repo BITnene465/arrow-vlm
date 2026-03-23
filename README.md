@@ -113,6 +113,10 @@ Use `.env` for machine-level defaults such as:
 
 Use `configs/*.yaml` for experiment-specific overrides.
 
+Image inputs are not fed at native resolution. The processor uses bounded
+dynamic resizing via `min_pixels` / `max_pixels`, which keeps aspect ratio
+while preventing oversized figure images from blowing up visual token counts.
+
 ### 3. Prepare the dataset
 
 ```bash
