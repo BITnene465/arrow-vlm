@@ -1,0 +1,13 @@
+.DS_Store
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ruff_cache/
+
+models/
+outputs/
+data/processed/
+data/raw/

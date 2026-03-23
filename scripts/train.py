@@ -1,0 +1,147 @@
+#!/usr/bin/env python
+from __future__ import annotations
+
+import argparse
+import math
+
+import torch
+from torch.utils.data import DataLoader, DistributedSampler
+
+from vlm_det.config import load_config, config_to_dict
+from vlm_det.data.collator import ArrowSFTCollator
+from vlm_det.data.dataset import ArrowSFTDataset
+from vlm_det.eval.evaluator import ArrowEvaluator
+from vlm_det.modeling.builder import build_model_tokenizer_processor
+from vlm_det.protocol.codec import ArrowCodec
+from vlm_det.train.optim import build_optimizer, build_scheduler
+from vlm_det.train.trainer import ArrowTrainer
+from vlm_det.utils.distributed import barrier, cleanup_distributed, init_distributed, seed_everything
+from vlm_det.utils.logging import ExperimentLogger
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Train Qwen3-VL on arrow detection protocol.")
+    parser.add_argument("--config", required=True)
+    parser.add_argument("--resume-from", default=None)
+    return parser.parse_args()
+
+
+def _build_dataloader(dataset, collator, batch_size, num_workers, pin_memory, persistent_workers, distributed, shuffle):
+    sampler = None
+    if distributed:
+        sampler = DistributedSampler(dataset, shuffle=shuffle)
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle if sampler is None else False,
+        sampler=sampler,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=persistent_workers if num_workers > 0 else False,
+        collate_fn=collator,
+    )
+
+
+def main() -> None:
+    args = parse_args()
+    config = load_config(args.config)
+    dist_ctx = init_distributed()
+    seed_everything(config.experiment.seed, rank=dist_ctx.rank)
+
+    build_artifacts = build_model_tokenizer_processor(config)
+    codec = ArrowCodec(num_bins=config.tokenizer.num_bins)
+    collator = ArrowSFTCollator(
+        processor=build_artifacts.processor,
+        tokenizer=build_artifacts.tokenizer,
+        add_eos_token=config.tokenizer.add_eos_token,
+        min_pixels=config.model.min_pixels,
+        max_pixels=config.model.max_pixels,
+    )
+    train_dataset = ArrowSFTDataset(
+        jsonl_path=config.data.train_path,
+        codec=codec,
+        system_prompt=config.prompt.system_prompt,
+        shuffle_instances=config.data.shuffle_instances_for_training,
+    )
+    val_dataset = ArrowSFTDataset(
+        jsonl_path=config.data.val_path,
+        codec=codec,
+        system_prompt=config.prompt.system_prompt,
+        shuffle_instances=False,
+    )
+    train_loader = _build_dataloader(
+        train_dataset,
+        collator,
+        config.train.per_device_batch_size,
+        config.data.num_workers,
+        config.data.pin_memory,
+        config.data.persistent_workers,
+        dist_ctx.distributed,
+        shuffle=True,
+    )
+    val_loader = _build_dataloader(
+        val_dataset,
+        collator,
+        config.train.per_device_batch_size,
+        config.data.num_workers,
+        config.data.pin_memory,
+        config.data.persistent_workers,
+        dist_ctx.distributed,
+        shuffle=False,
+    )
+
+    total_steps_per_epoch = math.ceil(
+        len(train_loader) / max(config.train.grad_accum_steps, 1)
+    )
+    total_steps = max(total_steps_per_epoch * config.train.epochs, 1)
+    optimizer = build_optimizer(build_artifacts.model, config)
+    scheduler = build_scheduler(optimizer, config, total_steps)
+    logger = ExperimentLogger(
+        output_dir=config.experiment.output_dir,
+        use_wandb=config.logging.use_wandb,
+        project=config.logging.project,
+        run_name=config.logging.run_name or config.experiment.name,
+        config=config_to_dict(config),
+    )
+    logger.info(
+        f"Loaded model with {build_artifacts.num_added_tokens} added tokens; "
+        f"trainable={build_artifacts.trainable_summary['trainable_params']} "
+        f"total={build_artifacts.trainable_summary['total_params']}"
+    )
+    evaluator = ArrowEvaluator(
+        codec=codec,
+        tokenizer=build_artifacts.tokenizer,
+        max_new_tokens=config.eval.max_new_tokens,
+        num_beams=config.eval.num_beams,
+        do_sample=config.eval.do_sample,
+        use_cache=config.eval.use_cache,
+        bbox_iou_threshold=config.eval.bbox_iou_threshold,
+        strict_point_distance_px=config.eval.strict_point_distance_px,
+    )
+    trainer = ArrowTrainer(
+        model=build_artifacts.model,
+        tokenizer=build_artifacts.tokenizer,
+        processor=build_artifacts.processor,
+        train_dataloader=train_loader,
+        val_dataloader=val_loader,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        config=config,
+        device=dist_ctx.device,
+        rank=dist_ctx.rank,
+        world_size=dist_ctx.world_size,
+        special_tokens=build_artifacts.special_tokens,
+        evaluator=evaluator,
+        logger=logger,
+    )
+    resume_path = args.resume_from or config.checkpoint.resume_from
+    if resume_path:
+        trainer.load_checkpoint(resume_path, strict=True, resume_training_state=True)
+    trainer.fit()
+    barrier()
+    logger.close()
+    cleanup_distributed()
+
+
+if __name__ == "__main__":
+    main()
