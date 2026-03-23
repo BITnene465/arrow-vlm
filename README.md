@@ -116,7 +116,10 @@ Use `configs/*.yaml` for experiment-specific overrides.
 ### 3. Prepare the dataset
 
 ```bash
-python scripts/prepare_data.py
+python scripts/prepare_data.py \
+  --raw-json-dir data/raw/json \
+  --image-dir data/raw/figure \
+  --output-dir data/processed/normalized
 ```
 
 This converts the raw LabelMe-style arrow annotations into normalized `train/val` JSONL files.
@@ -138,13 +141,18 @@ torchrun --nproc_per_node=2 scripts/train.py --config configs/train_full_ft.yaml
 ### 5. Run inference
 
 ```bash
-python scripts/infer.py --config configs/train_lora.yaml --image /path/to/figure.jpg
+python scripts/infer.py \
+  --config configs/train_lora.yaml \
+  --checkpoint outputs/your_experiment/checkpoints/best \
+  --image /path/to/figure.jpg
 ```
 
 ### 6. Launch the demo
 
 ```bash
-python app/demo.py --config configs/train_lora.yaml --checkpoint /path/to/checkpoint
+python app/demo.py \
+  --config configs/train_lora.yaml \
+  --checkpoint outputs/your_experiment/checkpoints/best
 ```
 
 ## Training Notes
