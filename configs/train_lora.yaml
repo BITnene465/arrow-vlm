@@ -76,6 +76,7 @@ train:
   log_every_steps: 10
   eval_every_steps: 200
   save_every_steps: 200
+  save_step_checkpoints: false
   keep_last_n_checkpoints: 3
   find_unused_parameters: false
 

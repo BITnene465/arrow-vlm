@@ -103,7 +103,11 @@ class ArrowTrainer:
                     self._maybe_update_best(metrics)
                     self._log_metrics(metrics, self.global_step)
                     self.save_checkpoint(tag="last", is_best=self._is_best(metrics))
-            elif self.global_step % self.config.train.save_every_steps == 0 and self.global_step > 0:
+            elif (
+                self.config.train.save_step_checkpoints
+                and self.global_step % self.config.train.save_every_steps == 0
+                and self.global_step > 0
+            ):
                 self.save_checkpoint(tag=f"step_{self.global_step}", is_best=False)
         if self._accumulated_micro_steps > 0:
             flush_metrics = self._optimizer_step()

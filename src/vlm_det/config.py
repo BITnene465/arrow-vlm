@@ -106,6 +106,7 @@ class TrainConfig:
     log_every_steps: int = 10
     eval_every_steps: int = 200
     save_every_steps: int = 200
+    save_step_checkpoints: bool = False
     keep_last_n_checkpoints: int = 3
     find_unused_parameters: bool = False
 
