@@ -53,12 +53,21 @@ def main() -> None:
     build_artifacts = build_model_tokenizer_processor(config)
     print("[startup] building codec and collator...", flush=True)
     codec = ArrowCodec(num_bins=config.tokenizer.num_bins)
-    collator = ArrowSFTCollator(
+    train_collator = ArrowSFTCollator(
         processor=build_artifacts.processor,
         tokenizer=build_artifacts.tokenizer,
         add_eos_token=config.tokenizer.add_eos_token,
         min_pixels=config.model.min_pixels,
         max_pixels=config.model.max_pixels,
+        include_targets_in_inputs=True,
+    )
+    val_collator = ArrowSFTCollator(
+        processor=build_artifacts.processor,
+        tokenizer=build_artifacts.tokenizer,
+        add_eos_token=config.tokenizer.add_eos_token,
+        min_pixels=config.model.min_pixels,
+        max_pixels=config.model.max_pixels,
+        include_targets_in_inputs=False,
     )
     print("[startup] loading datasets...", flush=True)
     train_dataset = ArrowSFTDataset(
@@ -76,7 +85,7 @@ def main() -> None:
     print("[startup] building dataloaders...", flush=True)
     train_loader = _build_dataloader(
         train_dataset,
-        collator,
+        train_collator,
         config.train.per_device_batch_size,
         config.data.num_workers,
         config.data.pin_memory,
@@ -86,7 +95,7 @@ def main() -> None:
     )
     val_loader = _build_dataloader(
         val_dataset,
-        collator,
+        val_collator,
         config.train.per_device_batch_size,
         config.data.num_workers,
         config.data.pin_memory,

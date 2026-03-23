@@ -14,6 +14,7 @@ class ArrowSFTCollator:
         ignore_index: int = -100,
         min_pixels: int | None = None,
         max_pixels: int | None = None,
+        include_targets_in_inputs: bool = True,
     ) -> None:
         self.processor = processor
         self.tokenizer = tokenizer
@@ -21,6 +22,7 @@ class ArrowSFTCollator:
         self.ignore_index = ignore_index
         self.min_pixels = min_pixels
         self.max_pixels = max_pixels
+        self.include_targets_in_inputs = include_targets_in_inputs
 
     def __call__(self, batch: list[dict[str, Any]]) -> dict[str, Any]:
         messages = [self._build_messages(item["system_prompt"]) for item in batch]
@@ -55,18 +57,22 @@ class ArrowSFTCollator:
         for row_index, prompt_length in enumerate(prompt_lengths):
             prefix_mask = prefix_batch["attention_mask"][row_index].bool()
             prefix_ids = prefix_batch["input_ids"][row_index][prefix_mask]
-            target_ids = list(target_batch["input_ids"][row_index])
-            if self.add_eos_token and eos_id is not None and (not target_ids or target_ids[-1] != eos_id):
-                target_ids.append(eos_id)
-            target_tensor = torch.tensor(target_ids, dtype=torch.long)
-            input_ids = torch.cat([prefix_ids, target_tensor], dim=0)
-            labels = torch.cat(
-                [
-                    torch.full((prefix_ids.shape[0],), self.ignore_index, dtype=torch.long),
-                    target_tensor.clone(),
-                ],
-                dim=0,
-            )
+            if self.include_targets_in_inputs:
+                target_ids = list(target_batch["input_ids"][row_index])
+                if self.add_eos_token and eos_id is not None and (not target_ids or target_ids[-1] != eos_id):
+                    target_ids.append(eos_id)
+                target_tensor = torch.tensor(target_ids, dtype=torch.long)
+                input_ids = torch.cat([prefix_ids, target_tensor], dim=0)
+                labels = torch.cat(
+                    [
+                        torch.full((prefix_ids.shape[0],), self.ignore_index, dtype=torch.long),
+                        target_tensor.clone(),
+                    ],
+                    dim=0,
+                )
+            else:
+                input_ids = prefix_ids
+                labels = torch.full((prefix_ids.shape[0],), self.ignore_index, dtype=torch.long)
             attention_mask = torch.ones_like(input_ids)
             final_input_ids.append(input_ids)
             final_labels.append(labels)
