@@ -36,7 +36,7 @@ data:
   train_path: data/processed/normalized/train.jsonl
   val_path: data/processed/normalized/val.jsonl
   shuffle_instances_for_training: true
-  num_workers: 6
+  num_workers: 12
   pin_memory: true
   persistent_workers: true
 
@@ -71,6 +71,7 @@ train:
   scheduler_type: cosine
   max_grad_norm: 1.0
   bf16: true
+  eval_strategy: epoch
   log_every_steps: 10
   eval_every_steps: 400
   save_every_steps: 400

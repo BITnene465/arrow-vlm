@@ -90,6 +90,21 @@ def _resolve_attn_implementation(config: ExperimentRuntimeConfig) -> str | None:
     return requested
 
 
+def _sanitize_generation_config(model: torch.nn.Module, config: ExperimentRuntimeConfig) -> None:
+    generation_config = getattr(model, "generation_config", None)
+    if generation_config is None:
+        return
+    generation_config.do_sample = config.eval.do_sample
+    generation_config.num_beams = config.eval.num_beams
+    generation_config.use_cache = config.eval.use_cache
+    if not config.eval.do_sample:
+        # Greedy / beam search does not consume sampling-only knobs. Clearing them
+        # avoids repeated transformers warnings like temperature/top_p/top_k ignored.
+        generation_config.temperature = None
+        generation_config.top_p = None
+        generation_config.top_k = None
+
+
 def build_model_tokenizer_processor(config: ExperimentRuntimeConfig) -> BuildArtifacts:
     if config.finetune.mode not in {"lora", "full"}:
         raise ValueError(
@@ -143,6 +158,7 @@ def build_model_tokenizer_processor(config: ExperimentRuntimeConfig) -> BuildArt
         tokenizer.pad_token = tokenizer.eos_token
     if hasattr(model, "generation_config") and tokenizer.pad_token_id is not None:
         model.generation_config.pad_token_id = tokenizer.pad_token_id
+    _sanitize_generation_config(model, config)
 
     if config.finetune.mode == "lora":
         _freeze_all_parameters(model)

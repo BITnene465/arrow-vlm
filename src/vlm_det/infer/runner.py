@@ -12,6 +12,7 @@ from vlm_det.modeling.builder import BuildArtifacts, build_model_tokenizer_proce
 from vlm_det.protocol.codec import ArrowCodec
 from vlm_det.utils.checkpoint import load_training_checkpoint
 from vlm_det.utils.distributed import unwrap_model
+from vlm_det.utils.generation import build_generate_kwargs
 
 
 @dataclass
@@ -30,11 +31,13 @@ class ArrowInferenceRunner:
         with torch.inference_mode():
             output_ids = raw_model.generate(
                 **model_inputs,
-                max_new_tokens=self.config.eval.max_new_tokens,
-                num_beams=self.config.eval.num_beams,
-                do_sample=self.config.eval.do_sample,
-                use_cache=self.config.eval.use_cache,
-                pad_token_id=self.artifacts.tokenizer.pad_token_id,
+                **build_generate_kwargs(
+                    self.artifacts.tokenizer,
+                    max_new_tokens=self.config.eval.max_new_tokens,
+                    num_beams=self.config.eval.num_beams,
+                    do_sample=self.config.eval.do_sample,
+                    use_cache=self.config.eval.use_cache,
+                ),
             )
         continuation = output_ids[0, prompt_length:]
         decoded = self.artifacts.tokenizer.decode(continuation, skip_special_tokens=False)

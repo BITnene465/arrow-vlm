@@ -7,6 +7,7 @@ import torch
 
 from vlm_det.protocol.codec import ArrowCodec
 from vlm_det.utils.distributed import reduce_numeric_dict, unwrap_model
+from vlm_det.utils.generation import build_generate_kwargs
 from vlm_det.utils.logging import create_progress_bar
 
 
@@ -64,12 +65,16 @@ class ArrowEvaluator:
             "input_ids": batch["input_ids"].to(next(model.parameters()).device),
             "attention_mask": batch["attention_mask"].to(next(model.parameters()).device),
             "pixel_values": batch["pixel_values"].to(next(model.parameters()).device),
-            "max_new_tokens": self.max_new_tokens,
-            "num_beams": self.num_beams,
-            "do_sample": self.do_sample,
-            "use_cache": self.use_cache,
-            "pad_token_id": self.tokenizer.pad_token_id,
         }
+        generate_inputs.update(
+            build_generate_kwargs(
+                self.tokenizer,
+                max_new_tokens=self.max_new_tokens,
+                num_beams=self.num_beams,
+                do_sample=self.do_sample,
+                use_cache=self.use_cache,
+            )
+        )
         if batch.get("image_grid_thw") is not None:
             generate_inputs["image_grid_thw"] = batch["image_grid_thw"].to(next(model.parameters()).device)
         generated = model.generate(**generate_inputs)

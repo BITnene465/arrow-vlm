@@ -103,6 +103,7 @@ class TrainConfig:
     scheduler_type: str = "cosine"
     max_grad_norm: float = 1.0
     bf16: bool = True
+    eval_strategy: str = "epoch"
     log_every_steps: int = 10
     eval_every_steps: int = 200
     save_every_steps: int = 200

@@ -62,6 +62,9 @@ class ArrowTrainer:
         self.best_checkpoint_path: str | None = None
         self._accumulated_micro_steps = 0
 
+    def _should_eval_on_step(self) -> bool:
+        return self.config.train.eval_strategy == "steps"
+
     def fit(self) -> None:
         self.train()
 
@@ -98,7 +101,10 @@ class ArrowTrainer:
                 )
                 progress.update(1)
             self._log_metrics(step_metrics, self.global_step)
-            if self.global_step % self.config.train.eval_every_steps == 0:
+            if (
+                self._should_eval_on_step()
+                and self.global_step % self.config.train.eval_every_steps == 0
+            ):
                 metrics = self.evaluate(step=self.global_step, epoch=epoch)
                 if metrics:
                     self._maybe_update_best(metrics)
