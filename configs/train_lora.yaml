@@ -75,6 +75,7 @@ train:
   max_grad_norm: 1.0
   bf16: true
   eval_strategy: epoch
+  eval_start_epoch: 1
   log_every_steps: 10
   eval_every_steps: 200
   save_every_steps: 200
@@ -83,10 +84,9 @@ train:
   find_unused_parameters: false
 
 eval:
-  # 协议输出可能很长：一张图中可能出现上百个 arrow。
-  # 以当前协议估算，100 个 arrow 且每个 3~4 个点时，输出通常已在 2500~3000 token 量级；
-  # 更密集样本会继续增大。因此验证/推理阶段需要为结构化生成预留足够长度。
-  max_new_tokens: 8192
+  # 训练期评估先收紧到 512，避免模型早期无法闭合协议时把生成打满上限。
+  # 最终离线评估或部署再单独放宽。
+  max_new_tokens: 512
   num_beams: 1
   do_sample: false
   use_cache: true

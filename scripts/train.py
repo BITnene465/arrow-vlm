@@ -16,7 +16,7 @@ from vlm_det.protocol.codec import ArrowCodec
 from vlm_det.train.optim import build_optimizer, build_scheduler
 from vlm_det.train.trainer import ArrowTrainer
 from vlm_det.utils.distributed import barrier, cleanup_distributed, init_distributed, seed_everything
-from vlm_det.utils.logging import ExperimentLogger
+from vlm_det.utils.logging import ExperimentLogger, format_count
 
 
 def parse_args() -> argparse.Namespace:
@@ -119,10 +119,14 @@ def main() -> None:
         run_name=config.logging.run_name or config.experiment.name,
         config=config_to_dict(config),
     )
+    trainable_params = build_artifacts.trainable_summary["trainable_params"]
+    total_params = build_artifacts.trainable_summary["total_params"]
+    trainable_ratio = 100.0 * trainable_params / max(total_params, 1)
     logger.info(
-        f"Loaded model with {build_artifacts.num_added_tokens} added tokens; "
-        f"trainable={build_artifacts.trainable_summary['trainable_params']} "
-        f"total={build_artifacts.trainable_summary['total_params']}"
+        "Loaded model with "
+        f"{build_artifacts.num_added_tokens} added tokens; "
+        f"trainable={format_count(trainable_params)} / {format_count(total_params)} "
+        f"({trainable_ratio:.2f}%)"
     )
     evaluator = ArrowEvaluator(
         codec=codec,

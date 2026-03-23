@@ -33,6 +33,8 @@ class ArrowInferenceRunner:
                 **model_inputs,
                 **build_generate_kwargs(
                     self.artifacts.tokenizer,
+                    num_bins=self.codec.num_bins,
+                    prompt_lengths=[prompt_length],
                     max_new_tokens=self.config.eval.max_new_tokens,
                     num_beams=self.config.eval.num_beams,
                     do_sample=self.config.eval.do_sample,

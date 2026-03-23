@@ -72,6 +72,7 @@ train:
   max_grad_norm: 1.0
   bf16: true
   eval_strategy: epoch
+  eval_start_epoch: 1
   log_every_steps: 10
   eval_every_steps: 400
   save_every_steps: 400
@@ -80,9 +81,9 @@ train:
   find_unused_parameters: false
 
 eval:
-  # 训练中评估先收紧到 4096，减少验证阶段显存压力。
-  # 如果后续确认需要更长输出，再单独放宽。
-  max_new_tokens: 4096
+  # 训练期评估先收紧到 512，避免模型早期无法闭合协议时把生成打满上限。
+  # 最终离线评估或部署再单独放宽。
+  max_new_tokens: 512
   num_beams: 1
   do_sample: false
   use_cache: true

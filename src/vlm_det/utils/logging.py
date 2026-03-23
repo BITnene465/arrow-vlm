@@ -64,6 +64,16 @@ class ExperimentLogger:
             self.run.finish()
 
 
+def format_count(value: int) -> str:
+    if value >= 1_000_000_000:
+        return f"{value / 1_000_000_000:.3f}B"
+    if value >= 1_000_000:
+        return f"{value / 1_000_000:.1f}M"
+    if value >= 1_000:
+        return f"{value / 1_000:.1f}K"
+    return str(value)
+
+
 def create_progress_bar(
     total: int,
     desc: str,
@@ -78,6 +88,6 @@ def create_progress_bar(
         leave=leave,
         dynamic_ncols=False,
         ncols=ncols,
-        ascii=" ▏▎▍▌▋▊▉█",
+        ascii=True,
         bar_format="{desc:<10}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}] {postfix}",
     )

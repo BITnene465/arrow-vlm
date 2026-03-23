@@ -36,7 +36,7 @@ class ArrowEvaluator:
         counts = self._empty_counts()
         raw_model = unwrap_model(model)
         raw_model.eval()
-        progress = create_progress_bar(total=len(dataloader), desc="eval", leave=False)
+        progress = create_progress_bar(total=len(dataloader), desc="eval", leave=True)
         with torch.no_grad():
             for batch in dataloader:
                 batch_counts = self.evaluate_batch(raw_model, batch)
@@ -69,6 +69,8 @@ class ArrowEvaluator:
         generate_inputs.update(
             build_generate_kwargs(
                 self.tokenizer,
+                num_bins=self.codec.num_bins,
+                prompt_lengths=batch["prompt_lengths"].tolist(),
                 max_new_tokens=self.max_new_tokens,
                 num_beams=self.num_beams,
                 do_sample=self.do_sample,

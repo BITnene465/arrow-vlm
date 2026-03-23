@@ -65,6 +65,9 @@ class ArrowTrainer:
     def _should_eval_on_step(self) -> bool:
         return self.config.train.eval_strategy == "steps"
 
+    def _should_eval_at_epoch_end(self, epoch: int) -> bool:
+        return epoch >= self.config.train.eval_start_epoch
+
     def fit(self) -> None:
         self.train()
 
@@ -73,6 +76,8 @@ class ArrowTrainer:
             if hasattr(self.train_dataloader.sampler, "set_epoch"):
                 self.train_dataloader.sampler.set_epoch(epoch)
             self.train_one_epoch(epoch)
+            if not self._should_eval_at_epoch_end(epoch):
+                continue
             metrics = self.evaluate(step=self.global_step, epoch=epoch)
             if metrics:
                 self._maybe_update_best(metrics)
@@ -86,6 +91,7 @@ class ArrowTrainer:
             total=len(self.train_dataloader),
             desc=f"train e{epoch + 1}",
             ncols=self.config.logging.progress_ncols,
+            leave=True,
         )
         self.optimizer.zero_grad(set_to_none=True)
         for step_index, batch in enumerate(self.train_dataloader, start=1):

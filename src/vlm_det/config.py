@@ -104,6 +104,7 @@ class TrainConfig:
     max_grad_norm: float = 1.0
     bf16: bool = True
     eval_strategy: str = "epoch"
+    eval_start_epoch: int = 1
     log_every_steps: int = 10
     eval_every_steps: int = 200
     save_every_steps: int = 200
