@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from pathlib import Path
-from typing import Any, TypeVar, get_args, get_origin
+from typing import Any, TypeVar, get_args, get_origin, get_type_hints
 
 import yaml
 from dotenv import load_dotenv
@@ -189,11 +189,13 @@ def _convert_value(value: Any, annotation: Any) -> Any:
 
 
 def _from_dict(cls: type[T], data: dict[str, Any]) -> T:
+    type_hints = get_type_hints(cls)
     kwargs = {}
     for field_info in fields(cls):
         if field_info.name not in data:
             continue
-        kwargs[field_info.name] = _convert_value(data[field_info.name], field_info.type)
+        annotation = type_hints.get(field_info.name, field_info.type)
+        kwargs[field_info.name] = _convert_value(data[field_info.name], annotation)
     return cls(**kwargs)
 
 

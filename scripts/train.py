@@ -44,11 +44,14 @@ def _build_dataloader(dataset, collator, batch_size, num_workers, pin_memory, pe
 
 def main() -> None:
     args = parse_args()
+    print("[startup] loading config...", flush=True)
     config = load_config(args.config)
     dist_ctx = init_distributed()
     seed_everything(config.experiment.seed, rank=dist_ctx.rank)
 
+    print("[startup] building model, tokenizer, and processor...", flush=True)
     build_artifacts = build_model_tokenizer_processor(config)
+    print("[startup] building codec and collator...", flush=True)
     codec = ArrowCodec(num_bins=config.tokenizer.num_bins)
     collator = ArrowSFTCollator(
         processor=build_artifacts.processor,
@@ -57,6 +60,7 @@ def main() -> None:
         min_pixels=config.model.min_pixels,
         max_pixels=config.model.max_pixels,
     )
+    print("[startup] loading datasets...", flush=True)
     train_dataset = ArrowSFTDataset(
         jsonl_path=config.data.train_path,
         codec=codec,
@@ -69,6 +73,7 @@ def main() -> None:
         system_prompt=config.prompt.system_prompt,
         shuffle_instances=False,
     )
+    print("[startup] building dataloaders...", flush=True)
     train_loader = _build_dataloader(
         train_dataset,
         collator,
@@ -94,8 +99,10 @@ def main() -> None:
         len(train_loader) / max(config.train.grad_accum_steps, 1)
     )
     total_steps = max(total_steps_per_epoch * config.train.epochs, 1)
+    print("[startup] building optimizer and scheduler...", flush=True)
     optimizer = build_optimizer(build_artifacts.model, config)
     scheduler = build_scheduler(optimizer, config, total_steps)
+    print("[startup] initializing logger...", flush=True)
     logger = ExperimentLogger(
         output_dir=config.experiment.output_dir,
         use_wandb=config.logging.use_wandb,
@@ -118,6 +125,7 @@ def main() -> None:
         bbox_iou_threshold=config.eval.bbox_iou_threshold,
         strict_point_distance_px=config.eval.strict_point_distance_px,
     )
+    print("[startup] building trainer...", flush=True)
     trainer = ArrowTrainer(
         model=build_artifacts.model,
         tokenizer=build_artifacts.tokenizer,
@@ -136,7 +144,9 @@ def main() -> None:
     )
     resume_path = args.resume_from or config.checkpoint.resume_from
     if resume_path:
+        print(f"[startup] resuming from checkpoint: {resume_path}", flush=True)
         trainer.load_checkpoint(resume_path, strict=True, resume_training_state=True)
+    print("[startup] start training.", flush=True)
     trainer.fit()
     barrier()
     logger.close()

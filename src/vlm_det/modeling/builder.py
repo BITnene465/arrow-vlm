@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -70,6 +71,21 @@ def _resolve_model_source(config: ExperimentRuntimeConfig) -> str:
     return config.model.remote_model_name_or_path
 
 
+def _resolve_attn_implementation(config: ExperimentRuntimeConfig) -> str | None:
+    requested = config.model.attn_implementation
+    if not requested:
+        return None
+    if requested != "flash_attention_2":
+        return requested
+    if not torch.cuda.is_available():
+        print("flash_attention_2 requested but CUDA is unavailable; falling back to sdpa.")
+        return "sdpa"
+    if importlib.util.find_spec("flash_attn") is None:
+        print("flash_attention_2 requested but flash_attn is not installed; falling back to sdpa.")
+        return "sdpa"
+    return requested
+
+
 def build_model_tokenizer_processor(config: ExperimentRuntimeConfig) -> BuildArtifacts:
     if config.finetune.mode not in {"lora", "full"}:
         raise ValueError(
@@ -83,8 +99,9 @@ def build_model_tokenizer_processor(config: ExperimentRuntimeConfig) -> BuildArt
     }
     if dtype is not None:
         model_kwargs["torch_dtype"] = dtype
-    if config.model.attn_implementation:
-        model_kwargs["attn_implementation"] = config.model.attn_implementation
+    attn_implementation = _resolve_attn_implementation(config)
+    if attn_implementation:
+        model_kwargs["attn_implementation"] = attn_implementation
 
     model = model_class.from_pretrained(model_source, **model_kwargs)
     processor = AutoProcessor.from_pretrained(

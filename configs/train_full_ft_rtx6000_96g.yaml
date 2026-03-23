@@ -1,0 +1,98 @@
+experiment:
+  name: qwen3_vl_arrow_sft_full_ft_rtx6000_96g
+  output_dir: outputs/qwen3_vl_arrow_sft_full_ft_rtx6000_96g
+  seed: 42
+
+model:
+  # 单卡 RTX Pro 6000 96GB：更激进的 full FT 模板。
+  # 这里放开视觉塔训练，优先追求效果；如果后续发现显存或稳定性不理想，
+  # 第一退路是把 freeze_vision_tower 改回 true。
+  model_name_or_path: models/Qwen3-VL-2B-Instruct
+  remote_model_name_or_path: Qwen/Qwen3-VL-2B-Instruct
+  trust_remote_code: true
+  attn_implementation: flash_attention_2
+  freeze_vision_tower: false
+  train_projector: false
+  vision_name_substrings:
+    - visual
+  projector_name_substrings:
+    - merger
+    - projector
+    - multi_modal_projector
+  min_pixels: 262144
+  max_pixels: 1003520
+
+tokenizer:
+  num_bins: 2048
+  add_eos_token: true
+  reserve_future_bins: 0
+
+prompt:
+  system_prompt: |
+    <|arrow_task|>
+    Detect all arrows in the figure and output each arrow using the predefined structured format. For each arrow, output one bounding box and an ordered keypoint sequence. The first keypoint is the start point, the last keypoint is the arrow head, and intermediate keypoints are turning points. Use <|visible|> for visible keypoints and <|occluded|> for occluded keypoints.
+
+data:
+  train_path: data/processed/normalized/train.jsonl
+  val_path: data/processed/normalized/val.jsonl
+  shuffle_instances_for_training: true
+  num_workers: 6
+  pin_memory: true
+  persistent_workers: true
+
+finetune:
+  mode: full
+
+lora:
+  enabled: false
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  bias: none
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+
+train:
+  epochs: 3
+  per_device_batch_size: 1
+  grad_accum_steps: 4
+  learning_rate: 0.00001
+  embed_learning_rate: 0.00001
+  lm_head_learning_rate: 0.00001
+  lora_learning_rate: 0.00001
+  weight_decay: 0.01
+  warmup_ratio: 0.03
+  scheduler_type: cosine
+  max_grad_norm: 1.0
+  bf16: true
+  log_every_steps: 10
+  eval_every_steps: 150
+  save_every_steps: 150
+  keep_last_n_checkpoints: 3
+  find_unused_parameters: false
+
+eval:
+  max_new_tokens: 8192
+  num_beams: 1
+  do_sample: false
+  use_cache: true
+  bbox_iou_threshold: 0.5
+  strict_point_distance_px: 8.0
+  monitor_metric: val/end_to_end_score
+  monitor_mode: max
+
+logging:
+  use_wandb: true
+  project: vlm_det
+  run_name: qwen3_vl_arrow_sft_full_ft_rtx6000_96g
+  progress_ncols: 110
+  progress_refresh_rate: 1
+
+checkpoint:
+  resume_from: null

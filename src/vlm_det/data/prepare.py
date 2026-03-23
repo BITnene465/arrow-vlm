@@ -153,8 +153,10 @@ def prepare_normalized_dataset(
     train_samples = samples[:split_index]
     val_samples = samples[split_index:]
 
-    normalized_dir = output_dir / "normalized"
-    reports_dir = output_dir / "reports"
+    # output_dir is the final normalized-data directory itself, e.g.
+    # data/processed/normalized. Do not append another "normalized" level.
+    normalized_dir = output_dir
+    reports_dir = output_dir.parent / "reports"
     write_jsonl(normalized_dir / "train.jsonl", train_samples)
     write_jsonl(normalized_dir / "val.jsonl", val_samples)
 

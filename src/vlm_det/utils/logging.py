@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +35,20 @@ class ExperimentLogger:
         self._logger.addHandler(file_handler)
         self.run = None
         if use_wandb and is_main_process():
-            self.run = wandb.init(project=project, name=run_name, config=config)
+            try:
+                settings = wandb.Settings(init_timeout=30)
+                mode = os.getenv("WANDB_MODE")
+                init_kwargs = {
+                    "project": project,
+                    "name": run_name,
+                    "config": config,
+                    "settings": settings,
+                }
+                if mode:
+                    init_kwargs["mode"] = mode
+                self.run = wandb.init(**init_kwargs)
+            except Exception as exc:  # noqa: BLE001
+                self._logger.warning(f"wandb init failed, continuing without wandb: {exc}")
 
     def info(self, message: str) -> None:
         self._logger.info(message)

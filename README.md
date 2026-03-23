@@ -98,6 +98,12 @@ uv pip install torch torchvision torchaudio --index-url https://download.pytorch
 uv pip install -e . --no-deps
 ```
 
+If you also want the optional FlashAttention dependency:
+
+```bash
+uv pip install -e ".[gpu]"
+```
+
 ### 2. Configure local paths
 
 ```bash
