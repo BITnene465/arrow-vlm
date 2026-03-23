@@ -19,12 +19,12 @@ model:
     - projector
     - multi_modal_projector
   min_pixels: 262144
-  max_pixels: 1572864
+  # 4K UHD total pixel budget: 3840 x 2160 = 8,294,400
+  max_pixels: 8294400
 
 tokenizer:
   num_bins: 2048
   add_eos_token: true
-  reserve_future_bins: 0
 
 prompt:
   system_prompt: |
@@ -91,8 +91,7 @@ logging:
   use_wandb: true
   project: vlm_det
   run_name: qwen3_vl_arrow_sft_lora_rtx6000_96g
-  progress_ncols: 110
-  progress_refresh_rate: 1
+  progress_ncols: 88
 
 checkpoint:
   resume_from: null

@@ -12,7 +12,6 @@ model:
   trust_remote_code: true
   attn_implementation: flash_attention_2
   freeze_vision_tower: false
-  train_projector: false
   vision_name_substrings:
     - visual
   projector_name_substrings:
@@ -20,12 +19,12 @@ model:
     - projector
     - multi_modal_projector
   min_pixels: 262144
-  max_pixels: 1003520
+  # 4K UHD total pixel budget: 3840 x 2160 = 8,294,400
+  max_pixels: 8294400
 
 tokenizer:
   num_bins: 2048
   add_eos_token: true
-  reserve_future_bins: 0
 
 prompt:
   system_prompt: |
@@ -43,21 +42,6 @@ data:
 finetune:
   mode: full
 
-lora:
-  enabled: false
-  r: 16
-  alpha: 32
-  dropout: 0.05
-  bias: none
-  target_modules:
-    - q_proj
-    - k_proj
-    - v_proj
-    - o_proj
-    - gate_proj
-    - up_proj
-    - down_proj
-
 train:
   epochs: 3
   per_device_batch_size: 1
@@ -65,7 +49,6 @@ train:
   learning_rate: 0.00001
   embed_learning_rate: 0.00001
   lm_head_learning_rate: 0.00001
-  lora_learning_rate: 0.00001
   weight_decay: 0.01
   warmup_ratio: 0.03
   scheduler_type: cosine
@@ -92,8 +75,7 @@ logging:
   use_wandb: true
   project: vlm_det
   run_name: qwen3_vl_arrow_sft_full_ft_rtx6000_96g
-  progress_ncols: 110
-  progress_refresh_rate: 1
+  progress_ncols: 88
 
 checkpoint:
   resume_from: null

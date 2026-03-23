@@ -68,11 +68,3 @@ def build_scheduler(
         num_warmup_steps=warmup_steps,
         num_training_steps=total_training_steps,
     )
-
-
-def current_lrs(optimizer: torch.optim.Optimizer) -> dict[str, float]:
-    result: dict[str, float] = {}
-    for index, group in enumerate(optimizer.param_groups):
-        group_name = group.get("name", f"group_{index}")
-        result[f"lr/{group_name}"] = float(group["lr"])
-    return result

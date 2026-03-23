@@ -32,14 +32,14 @@ class ModelConfig:
     # These values follow the Qwen-style pixel-budget approach and act as
     # sane defaults when configs do not override them explicitly.
     min_pixels: int | None = 200704
-    max_pixels: int | None = 1003520
+    # 4K UHD pixel budget: 3840 x 2160 = 8,294,400
+    max_pixels: int | None = 8294400
 
 
 @dataclass
 class TokenizerConfig:
     num_bins: int = 2048
     add_eos_token: bool = True
-    reserve_future_bins: int = 0
 
 
 @dataclass
@@ -128,8 +128,7 @@ class LoggingConfig:
     use_wandb: bool = True
     project: str = "vlm_det"
     run_name: str | None = None
-    progress_ncols: int = 110
-    progress_refresh_rate: int = 1
+    progress_ncols: int = 88
 
 
 @dataclass

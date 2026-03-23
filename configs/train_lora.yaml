@@ -21,12 +21,12 @@ model:
   # 这里保留长宽比，只限制总像素预算。LoRA 首轮优先保证细小箭头可见性，
   # 因此使用相对更高的上限。
   min_pixels: 200704
-  max_pixels: 1003520
+  # 4K UHD total pixel budget: 3840 x 2160 = 8,294,400
+  max_pixels: 8294400
 
 tokenizer:
   num_bins: 2048
   add_eos_token: true
-  reserve_future_bins: 0
 
 prompt:
   system_prompt: |
@@ -97,8 +97,7 @@ logging:
   use_wandb: true
   project: vlm_det
   run_name: null
-  progress_ncols: 110
-  progress_refresh_rate: 1
+  progress_ncols: 88
 
 checkpoint:
   resume_from: null

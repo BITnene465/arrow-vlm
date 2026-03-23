@@ -3,19 +3,12 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import gradio as gr
-import torch
 from PIL import Image, ImageDraw
 
-from vlm_det.config import ExperimentRuntimeConfig, load_config
-from vlm_det.modeling.builder import BuildArtifacts, build_model_tokenizer_processor
-from vlm_det.protocol.codec import ArrowCodec
-from vlm_det.utils.checkpoint import load_training_checkpoint
-from vlm_det.utils.distributed import unwrap_model
+from vlm_det.infer.runner import ArrowInferenceRunner, load_inference_runner
 
 
 PALETTE = [
@@ -29,15 +22,6 @@ PALETTE = [
     "#588157",
 ]
 
-
-@dataclass
-class DemoArtifacts:
-    config: ExperimentRuntimeConfig
-    model_artifacts: BuildArtifacts
-    codec: ArrowCodec
-    device: torch.device
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Launch a Gradio demo for ArrowVLM.")
     parser.add_argument("--config", default="configs/train_lora.yaml")
@@ -46,92 +30,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=7860)
     parser.add_argument("--share", action="store_true")
     return parser.parse_args()
-
-
-def _load_demo_artifacts(config_path: str, checkpoint_path: str) -> DemoArtifacts:
-    config = load_config(config_path)
-    model_artifacts = build_model_tokenizer_processor(config)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model_artifacts.model = model_artifacts.model.to(device)
-    load_training_checkpoint(
-        checkpoint_dir=checkpoint_path,
-        model=model_artifacts.model,
-        tokenizer=model_artifacts.tokenizer,
-        processor=model_artifacts.processor,
-        strict=True,
-        resume_training_state=False,
-    )
-    unwrap_model(model_artifacts.model).eval()
-    codec = ArrowCodec(num_bins=config.tokenizer.num_bins)
-    return DemoArtifacts(
-        config=config,
-        model_artifacts=model_artifacts,
-        codec=codec,
-        device=device,
-    )
-
-
-def _build_prompt(artifacts: DemoArtifacts) -> str:
-    messages = [
-        {
-            "role": "system",
-            "content": [{"type": "text", "text": artifacts.config.prompt.system_prompt}],
-        },
-        {
-            "role": "user",
-            "content": [{"type": "image"}],
-        },
-    ]
-    template_owner = (
-        artifacts.model_artifacts.processor
-        if hasattr(artifacts.model_artifacts.processor, "apply_chat_template")
-        else artifacts.model_artifacts.tokenizer
-    )
-    return template_owner.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True,
-    )
-
-
-def _prepare_inputs(artifacts: DemoArtifacts, image: Image.Image) -> tuple[dict[str, torch.Tensor], int]:
-    prompt = _build_prompt(artifacts)
-    processor_kwargs: dict[str, Any] = {
-        "text": [prompt],
-        "images": [image],
-        "return_tensors": "pt",
-    }
-    if artifacts.config.model.min_pixels is not None:
-        processor_kwargs["min_pixels"] = artifacts.config.model.min_pixels
-    if artifacts.config.model.max_pixels is not None:
-        processor_kwargs["max_pixels"] = artifacts.config.model.max_pixels
-    batch = artifacts.model_artifacts.processor(**processor_kwargs)
-    prompt_length = int(batch["attention_mask"].sum(dim=1).item())
-    model_inputs = {
-        key: value.to(artifacts.device) if hasattr(value, "to") else value
-        for key, value in batch.items()
-    }
-    return model_inputs, prompt_length
-
-
-def _run_generation(artifacts: DemoArtifacts, image: Image.Image) -> tuple[str, dict[str, Any]]:
-    width, height = image.size
-    model_inputs, prompt_length = _prepare_inputs(artifacts, image)
-    raw_model = unwrap_model(artifacts.model_artifacts.model)
-    with torch.inference_mode():
-        output_ids = raw_model.generate(
-            **model_inputs,
-            max_new_tokens=artifacts.config.eval.max_new_tokens,
-            num_beams=artifacts.config.eval.num_beams,
-            do_sample=artifacts.config.eval.do_sample,
-            use_cache=artifacts.config.eval.use_cache,
-            pad_token_id=artifacts.model_artifacts.tokenizer.pad_token_id,
-        )
-    continuation = output_ids[0, prompt_length:]
-    decoded = artifacts.model_artifacts.tokenizer.decode(continuation, skip_special_tokens=False)
-    prediction = artifacts.codec.decode(decoded, image_width=width, image_height=height)
-    return decoded, prediction
-
 
 def _draw_prediction(image: Image.Image, prediction: dict[str, Any]) -> Image.Image:
     canvas = image.convert("RGB").copy()
@@ -172,7 +70,7 @@ def _format_summary(prediction: dict[str, Any]) -> str:
     )
 
 
-def build_demo(artifacts: DemoArtifacts) -> gr.Blocks:
+def build_demo(runner: ArrowInferenceRunner) -> gr.Blocks:
     title = "ArrowVLM Demo"
     description = (
         "Upload a figure image and run structured arrow detection with the current checkpoint. "
@@ -184,7 +82,7 @@ def build_demo(artifacts: DemoArtifacts) -> gr.Blocks:
             return None, "Please upload an image.", "{}", ""
         pil_image = image.convert("RGB")
         try:
-            raw_text, prediction = _run_generation(artifacts, pil_image)
+            raw_text, prediction = runner.predict(pil_image)
             overlay = _draw_prediction(pil_image, prediction)
             summary = _format_summary(prediction)
             formatted_json = json.dumps(prediction, ensure_ascii=False, indent=2)
@@ -196,8 +94,8 @@ def build_demo(artifacts: DemoArtifacts) -> gr.Blocks:
         gr.Markdown(f"# {title}")
         gr.Markdown(description)
         gr.Markdown(
-            f"**Config:** `{artifacts.config.experiment.name}`  \n"
-            f"**Model source:** `{artifacts.config.model.model_name_or_path}`"
+            f"**Config:** `{runner.config.experiment.name}`  \n"
+            f"**Model source:** `{runner.config.model.model_name_or_path}`"
         )
         with gr.Row():
             with gr.Column(scale=1):
@@ -222,8 +120,8 @@ def main() -> None:
     checkpoint_path = Path(args.checkpoint)
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Checkpoint directory not found: {checkpoint_path}")
-    artifacts = _load_demo_artifacts(args.config, args.checkpoint)
-    demo = build_demo(artifacts)
+    runner = load_inference_runner(args.config, args.checkpoint)
+    demo = build_demo(runner)
     demo.queue(api_open=False).launch(server_name=args.host, server_port=args.port, share=args.share)
 
 

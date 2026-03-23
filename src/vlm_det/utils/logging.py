@@ -59,10 +59,6 @@ class ExperimentLogger:
         if is_main_process() and self.run is not None:
             self.run.log(metrics, step=step)
 
-    def watch_artifact(self, payload: dict[str, Any], step: int) -> None:
-        if is_main_process() and self.run is not None:
-            self.run.log(payload, step=step)
-
     def close(self) -> None:
         if self.run is not None:
             self.run.finish()
@@ -71,7 +67,7 @@ class ExperimentLogger:
 def create_progress_bar(
     total: int,
     desc: str,
-    ncols: int = 110,
+    ncols: int = 88,
     leave: bool = False,
 ) -> tqdm | None:
     if not is_main_process():
@@ -83,5 +79,5 @@ def create_progress_bar(
         dynamic_ncols=False,
         ncols=ncols,
         ascii=" ▏▎▍▌▋▊▉█",
-        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
+        bar_format="{desc:<10}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}] {postfix}",
     )
