@@ -141,6 +141,12 @@ torchrun --nproc_per_node=2 scripts/train.py --config configs/train_full_ft.yaml
 python scripts/infer.py --config configs/train_lora.yaml --image /path/to/figure.jpg
 ```
 
+### 6. Launch the demo
+
+```bash
+python app/demo.py --config configs/train_lora.yaml --checkpoint /path/to/checkpoint
+```
+
 ## Training Notes
 
 - prompt and image-prefix positions are masked during training
