@@ -1,6 +1,6 @@
 experiment:
-  name: qwen3_vl_arrow_sft
-  output_dir: outputs/qwen3_vl_arrow_sft
+  name: qwen3_vl_arrow_sft_lora
+  output_dir: outputs/qwen3_vl_arrow_sft_lora
   seed: 42
 
 model:
@@ -39,9 +39,7 @@ data:
   persistent_workers: true
 
 finetune:
-  # 支持:
-  # - lora: LoRA + trainable embeddings/lm_head
-  # - full: full finetune（按 requires_grad 训练全模型；若 freeze_vision_tower=true，则视觉塔仍冻结）
+  # LoRA + trainable embeddings / lm_head
   mode: lora
 
 lora:

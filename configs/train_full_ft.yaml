@@ -1,0 +1,101 @@
+experiment:
+  name: qwen3_vl_arrow_sft_full_ft
+  output_dir: outputs/qwen3_vl_arrow_sft_full_ft
+  seed: 42
+
+model:
+  # 默认优先使用本地 models 目录中的模型；若本地不存在，再回退到远端仓库 ID。
+  model_name_or_path: models/Qwen3-VL-2B-Instruct
+  remote_model_name_or_path: Qwen/Qwen3-VL-2B-Instruct
+  trust_remote_code: true
+  attn_implementation: flash_attention_2
+  freeze_vision_tower: true
+  # full 模式下 projector 会随全模型一起训练，这个开关不再单独起作用。
+  train_projector: false
+  vision_name_substrings:
+    - visual
+  projector_name_substrings:
+    - merger
+    - projector
+    - multi_modal_projector
+  min_pixels: null
+  max_pixels: null
+
+tokenizer:
+  num_bins: 2048
+  add_eos_token: true
+  reserve_future_bins: 0
+
+prompt:
+  system_prompt: |
+    <|arrow_task|>
+    Detect all arrows in the figure and output each arrow using the predefined structured format. For each arrow, output one bounding box and an ordered keypoint sequence. The first keypoint is the start point, the last keypoint is the arrow head, and intermediate keypoints are turning points. Use <|visible|> for visible keypoints and <|occluded|> for occluded keypoints.
+
+data:
+  train_path: data/processed/normalized/train.jsonl
+  val_path: data/processed/normalized/val.jsonl
+  shuffle_instances_for_training: true
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: true
+
+finetune:
+  # full finetune（若 freeze_vision_tower=true，则视觉塔仍冻结）
+  mode: full
+
+lora:
+  enabled: false
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  bias: none
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+
+train:
+  epochs: 3
+  per_device_batch_size: 1
+  grad_accum_steps: 8
+  learning_rate: 0.00002
+  embed_learning_rate: 0.00002
+  lm_head_learning_rate: 0.00002
+  lora_learning_rate: 0.00002
+  weight_decay: 0.01
+  warmup_ratio: 0.03
+  scheduler_type: cosine
+  max_grad_norm: 1.0
+  bf16: true
+  log_every_steps: 10
+  eval_every_steps: 200
+  save_every_steps: 200
+  keep_last_n_checkpoints: 3
+  find_unused_parameters: false
+
+eval:
+  # 协议输出可能很长：一张图中可能出现上百个 arrow。
+  # 以当前协议估算，100 个 arrow 且每个 3~4 个点时，输出通常已在 2500~3000 token 量级；
+  # 更密集样本会继续增大。因此验证/推理阶段需要为结构化生成预留足够长度。
+  max_new_tokens: 8192
+  num_beams: 1
+  do_sample: false
+  use_cache: true
+  bbox_iou_threshold: 0.5
+  strict_point_distance_px: 8.0
+  monitor_metric: val/end_to_end_score
+  monitor_mode: max
+
+logging:
+  use_wandb: true
+  project: vlm_det
+  run_name: null
+  progress_ncols: 110
+  progress_refresh_rate: 1
+
+checkpoint:
+  resume_from: null
