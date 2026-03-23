@@ -1,63 +1,87 @@
-# Figure Arrow VLM
+# ArrowVLM
 
-Structured VLM fine-tuning stack for detecting arrows in paper figures and predicting ordered arrow skeleton keypoints.
+Train `Qwen3-VL` to read scientific figures, detect arrows, and generate structured arrow skeletons.
 
-Recommended repository name: `figure-arrow-vlm`
+`ArrowVLM` is a focused multimodal fine-tuning stack for a narrow but practical task: understanding arrows in paper figures. Instead of treating the problem as generic captioning or forcing it into a fixed-size pose head, this project trains a vision-language model to emit a strict, parseable protocol containing:
 
-## Overview
+- one bounding box per arrow
+- an ordered, variable-length keypoint chain
+- visibility labels for each keypoint
 
-This project targets a specialized document-figure understanding task built on top of `Qwen3-VL-2B-Instruct`.
+The result is a training and inference pipeline that stays close to modern VLM practice while remaining usable for structured geometry tasks.
 
-Given a full figure image, the model is trained to:
+## Why This Project
 
-- detect every `arrow`
-- output one bounding box per arrow
-- output an ordered, variable-length keypoint chain
-- predict keypoint visibility with `visible` / `occluded`
-- generate results with a strict special-token protocol instead of free-form JSON
+Arrows in technical figures are small, thin, irregular, and often partially occluded. They are also not a good fit for classic fixed-topology pose formulations. This repo takes a different route:
 
-The training stack is built with:
+- use `Qwen3-VL-2B-Instruct` as the base model
+- formulate arrow detection as structured sequence generation
+- represent coordinates with discrete special tokens instead of raw numbers
+- keep decoding fully machine-readable through a custom `ArrowCodec`
 
-- `transformers`
-- `peft`
-- native `torch.distributed` DDP
-- a custom `ArrowCodec`
-- local-first model resolution from `models/`
+## Core Ideas
 
-## Output Format
+- **Whole-figure training**: the model sees the entire paper figure, not cropped arrow instances.
+- **Structured protocol output**: predictions are emitted through a strict special-token format.
+- **Variable-length skeletons**: each arrow can have a different number of turning points.
+- **Visibility-aware keypoints**: keypoints are labeled as `visible` or `occluded`.
+- **Local-first model loading**: by default, models are loaded from `models/` before falling back to remote sources.
 
-Each arrow instance is represented as:
+## Output Representation
+
+Each arrow is represented as:
 
 - one `bbox`
 - one ordered keypoint sequence
 - first point = start point
 - last point = arrow head
-- intermediate points = turning points
+- middle points = turning points
 
-Coordinates are normalized against the original image and discretized into `2048` bins via dedicated `x/y` special tokens.
+Coordinates are normalized on the original image and discretized into `2048` bins using dedicated `x/y` tokens.
 
-## Features
+A decoded prediction looks like:
 
-- Qwen3-VL fine-tuning with explicit `LoRA` and `full` modes
-- strict protocol encode/decode through `ArrowCodec`
-- raw-to-normalized dataset conversion for LabelMe-style annotations
-- native DDP training with `torchrun`
-- local-first model loading from `models/`
-- checkpointing, `wandb`, and fixed-width `tqdm` logging
+```json
+{
+  "instances": [
+    {
+      "bbox": [184, 92, 311, 245],
+      "keypoints": [
+        [190, 97, "visible"],
+        [245, 141, "occluded"],
+        [307, 240, "visible"]
+      ]
+    }
+  ]
+}
+```
+
+The model does not train against this JSON directly. Internally, it learns a stricter special-token protocol defined by `ArrowCodec`.
+
+## What Is Implemented
+
+- `Qwen3-VL` fine-tuning with explicit `LoRA` and `full` modes
+- tokenizer extension and embedding resize for protocol tokens
+- raw-to-normalized conversion from LabelMe-style annotations
+- strict protocol encode/decode with `ArrowCodec`
+- native `torch.distributed` DDP training
+- `wandb` logging and fixed-width `tqdm` progress bars
+- checkpoint save/resume for `last`, `best`, and step-based snapshots
+- local-first inference and single-image decode pipeline
 
 ## Repository Layout
 
 ```text
-configs/        training configs for LoRA and full fine-tuning
-scripts/        data preparation, training, inference, and utility scripts
+configs/        training configs
+scripts/        preparation, training, inference, and utility entrypoints
 src/vlm_det/    core package
-data/           raw and processed data
+data/           raw and processed datasets
 models/         local model weights
 ```
 
 ## Quick Start
 
-### Environment
+### 1. Create the environment
 
 This repository is designed around `uv` and Python `3.11`.
 
@@ -74,25 +98,30 @@ uv pip install torch torchvision torchaudio --index-url https://download.pytorch
 uv pip install -e . --no-deps
 ```
 
-### Configuration
-
-Create a local environment file:
+### 2. Configure local paths
 
 ```bash
 cp .env.example .env
 ```
 
-Machine-level defaults live in `.env`. Experiment-level overrides live in `configs/*.yaml`.
+Use `.env` for machine-level defaults such as:
 
-### Data Preparation
+- local model path
+- remote fallback model path
+- output directory
+- cache directory
+
+Use `configs/*.yaml` for experiment-specific overrides.
+
+### 3. Prepare the dataset
 
 ```bash
 python scripts/prepare_data.py
 ```
 
-This converts the raw LabelMe-style annotations into normalized `train/val` JSONL files.
+This converts the raw LabelMe-style arrow annotations into normalized `train/val` JSONL files.
 
-### Training
+### 4. Train
 
 LoRA:
 
@@ -106,18 +135,19 @@ Full fine-tuning:
 torchrun --nproc_per_node=2 scripts/train.py --config configs/train_full_ft.yaml
 ```
 
-### Inference
+### 5. Run inference
 
 ```bash
 python scripts/infer.py --config configs/train_lora.yaml --image /path/to/figure.jpg
 ```
 
-## Notes
+## Training Notes
 
-- Prompt and image-prefix positions are masked during training.
-- Only the structured assistant target contributes to the training loss.
-- Added protocol tokens require tokenizer extension plus embedding resize.
-- In LoRA mode, `embed_tokens` and `lm_head` remain trainable.
+- prompt and image-prefix positions are masked during training
+- only the structured assistant target contributes to the loss
+- protocol tokens are added to the tokenizer and require embedding resize
+- in LoRA mode, `embed_tokens` and `lm_head` remain trainable
+- long outputs are expected; evaluation generation length is configured accordingly
 
 ## License
 
