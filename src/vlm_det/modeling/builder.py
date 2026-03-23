@@ -71,6 +71,10 @@ def _resolve_model_source(config: ExperimentRuntimeConfig) -> str:
     return config.model.remote_model_name_or_path
 
 
+def _is_local_model_source(model_source: str) -> bool:
+    return Path(model_source).exists()
+
+
 def _resolve_attn_implementation(config: ExperimentRuntimeConfig) -> str | None:
     requested = config.model.attn_implementation
     if not requested:
@@ -93,9 +97,11 @@ def build_model_tokenizer_processor(config: ExperimentRuntimeConfig) -> BuildArt
         )
     model_class = _resolve_model_class()
     model_source = _resolve_model_source(config)
+    local_files_only = _is_local_model_source(model_source)
     dtype = torch.bfloat16 if config.train.bf16 and torch.cuda.is_available() else None
     model_kwargs = {
         "trust_remote_code": config.model.trust_remote_code,
+        "local_files_only": local_files_only,
     }
     if dtype is not None:
         model_kwargs["torch_dtype"] = dtype
@@ -103,16 +109,21 @@ def build_model_tokenizer_processor(config: ExperimentRuntimeConfig) -> BuildArt
     if attn_implementation:
         model_kwargs["attn_implementation"] = attn_implementation
 
+    print(f"[builder] loading model from: {model_source}", flush=True)
     model = model_class.from_pretrained(model_source, **model_kwargs)
+    print("[builder] loading processor...", flush=True)
     processor = AutoProcessor.from_pretrained(
         model_source,
         trust_remote_code=config.model.trust_remote_code,
+        local_files_only=local_files_only,
     )
+    print("[builder] resolving tokenizer...", flush=True)
     tokenizer = getattr(processor, "tokenizer", None)
     if tokenizer is None:
         tokenizer = AutoTokenizer.from_pretrained(
             model_source,
             trust_remote_code=config.model.trust_remote_code,
+            local_files_only=local_files_only,
         )
         processor.tokenizer = tokenizer
 
@@ -120,10 +131,12 @@ def build_model_tokenizer_processor(config: ExperimentRuntimeConfig) -> BuildArt
     tokens_to_add = [token for token in special_tokens if token not in tokenizer.get_vocab()]
     
     # 向词表中添加 special token
+    print(f"[builder] adding {len(tokens_to_add)} special tokens...", flush=True)
     num_added_tokens = tokenizer.add_special_tokens(
         {"additional_special_tokens": tokens_to_add}
     )
     # 调整模型 embedding 层大小，会初始化新 token 的 embedding，原本的 token 的 embedding 会被复制一份
+    print("[builder] resizing token embeddings...", flush=True)
     model.resize_token_embeddings(len(tokenizer))
     
     if tokenizer.pad_token_id is None and tokenizer.eos_token is not None:

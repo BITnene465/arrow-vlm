@@ -81,7 +81,7 @@ class ArrowTrainer:
         self._accumulated_micro_steps = 0
         progress = create_progress_bar(
             total=len(self.train_dataloader),
-            desc=f"epoch {epoch + 1}/{self.config.train.epochs}",
+            desc=f"train e{epoch + 1}",
             ncols=self.config.logging.progress_ncols,
         )
         self.optimizer.zero_grad(set_to_none=True)
@@ -90,13 +90,14 @@ class ArrowTrainer:
             if progress is not None:
                 progress.set_postfix(
                     {
+                        "gs": self.global_step,
                         "loss": f"{step_metrics['train/loss']:.4f}",
-                        "lr": f"{step_metrics['train/lr']:.2e}",
+                        "grad": f"{step_metrics['train/grad_norm']:.2f}",
+                        "lr": f"{step_metrics['train/lr']:.1e}",
                     }
                 )
                 progress.update(1)
-            if self.global_step % self.config.train.log_every_steps == 0:
-                self._log_metrics(step_metrics, self.global_step)
+            self._log_metrics(step_metrics, self.global_step)
             if self.global_step % self.config.train.eval_every_steps == 0:
                 metrics = self.evaluate(step=self.global_step, epoch=epoch)
                 if metrics:
@@ -115,12 +116,13 @@ class ArrowTrainer:
                 if progress is not None:
                     progress.set_postfix(
                         {
+                            "gs": self.global_step,
                             "loss": "flush",
-                            "lr": f"{flush_metrics['train/lr']:.2e}",
+                            "grad": f"{flush_metrics['train/grad_norm']:.2f}",
+                            "lr": f"{flush_metrics['train/lr']:.1e}",
                         }
                     )
-                if self.global_step % self.config.train.log_every_steps == 0:
-                    self._log_metrics(flush_metrics, self.global_step)
+                self._log_metrics(flush_metrics, self.global_step)
         if progress is not None:
             progress.close()
 
@@ -239,8 +241,6 @@ class ArrowTrainer:
     def _log_metrics(self, metrics: dict[str, float], step: int) -> None:
         if self.logger is None:
             return
-        display = ", ".join(f"{key}={value:.4f}" for key, value in metrics.items())
-        self.logger.info(f"step={step} | {display}")
         self.logger.log_metrics(metrics, step=step)
 
     def _is_best(self, metrics: dict[str, float]) -> bool:

@@ -4,23 +4,22 @@ experiment:
   seed: 42
 
 model:
-  # 单卡 RTX Pro 6000 96GB：更激进的 full FT 模板。
-  # 这里放开视觉塔训练，优先追求效果；如果后续发现显存或稳定性不理想，
-  # 第一退路是把 freeze_vision_tower 改回 true。
+  # 单卡 RTX Pro 6000 96GB：更保守的 full FT 模板。
+  # full FT 依然明显比 LoRA 更吃显存；这里默认冻结视觉塔，先优先保证可跑。
   model_name_or_path: models/Qwen3-VL-2B-Instruct
   remote_model_name_or_path: Qwen/Qwen3-VL-2B-Instruct
   trust_remote_code: true
   attn_implementation: flash_attention_2
-  freeze_vision_tower: false
+  freeze_vision_tower: true
   vision_name_substrings:
     - visual
   projector_name_substrings:
     - merger
     - projector
     - multi_modal_projector
-  min_pixels: 262144
-  # 4K UHD total pixel budget: 3840 x 2160 = 8,294,400
-  max_pixels: 8294400
+  min_pixels: 200704
+  # 2K UHD total pixel budget: 2560 x 1440 = 3,686,400
+  max_pixels: 3686400
 
 tokenizer:
   num_bins: 2048
@@ -45,7 +44,7 @@ finetune:
 train:
   epochs: 3
   per_device_batch_size: 1
-  grad_accum_steps: 4
+  grad_accum_steps: 8
   learning_rate: 0.00001
   embed_learning_rate: 0.00001
   lm_head_learning_rate: 0.00001
@@ -55,14 +54,15 @@ train:
   max_grad_norm: 1.0
   bf16: true
   log_every_steps: 10
-  eval_every_steps: 150
-  save_every_steps: 150
+  eval_every_steps: 400
+  save_every_steps: 400
   save_step_checkpoints: false
   keep_last_n_checkpoints: 3
   find_unused_parameters: false
 
 eval:
-  max_new_tokens: 8192
+  # full FT 的验证阶段更容易触发显存峰值，先保守一些。
+  max_new_tokens: 4096
   num_beams: 1
   do_sample: false
   use_cache: true

@@ -11,6 +11,11 @@ from torch.utils.data import Dataset
 from vlm_det.protocol.codec import ArrowCodec
 from vlm_det.utils.io import load_jsonl
 
+# Training can encounter extremely large figure images. We only decode images
+# that are already part of the trusted dataset, so disable Pillow's
+# decompression bomb guard here as well.
+Image.MAX_IMAGE_PIXELS = None
+
 
 class ArrowSFTDataset(Dataset):
     def __init__(

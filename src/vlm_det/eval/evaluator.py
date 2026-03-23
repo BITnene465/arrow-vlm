@@ -7,6 +7,7 @@ import torch
 
 from vlm_det.protocol.codec import ArrowCodec
 from vlm_det.utils.distributed import reduce_numeric_dict, unwrap_model
+from vlm_det.utils.logging import create_progress_bar
 
 
 class ArrowEvaluator:
@@ -34,11 +35,27 @@ class ArrowEvaluator:
         counts = self._empty_counts()
         raw_model = unwrap_model(model)
         raw_model.eval()
+        progress = create_progress_bar(total=len(dataloader), desc="eval", leave=False)
         with torch.no_grad():
             for batch in dataloader:
                 batch_counts = self.evaluate_batch(raw_model, batch)
                 for key, value in batch_counts.items():
                     counts[key] += value
+                if progress is not None:
+                    samples = max(counts["samples"], 1.0)
+                    parse_rate = counts["parse_success"] / samples
+                    precision = counts["bbox_tp"] / max(counts["bbox_tp"] + counts["bbox_fp"], 1.0)
+                    recall = counts["bbox_tp"] / max(counts["bbox_tp"] + counts["bbox_fn"], 1.0)
+                    progress.set_postfix(
+                        {
+                            "parse": f"{parse_rate:.2f}",
+                            "p": f"{precision:.2f}",
+                            "r": f"{recall:.2f}",
+                        }
+                    )
+                    progress.update(1)
+        if progress is not None:
+            progress.close()
         reduced = reduce_numeric_dict(counts, average=False)
         return self.summarize(reduced)
 
