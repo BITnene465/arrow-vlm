@@ -19,11 +19,12 @@ model:
     - projector
     - multi_modal_projector
   min_pixels: 200704
-  # 2K UHD total pixel budget: 2560 x 1440 = 3,686,400
-  max_pixels: 3686400
+  # 1024 x 1024 total pixel budget: 1,048,576
+  max_pixels: 1048576
 
 tokenizer:
-  num_bins: 2048
+  # 坐标离散为 1024 档，对应 <|x_0000|> ~ <|x_1023|> / <|y_0000|> ~ <|y_1023|>
+  num_bins: 1024
   add_eos_token: true
 
 prompt:

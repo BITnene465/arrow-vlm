@@ -32,13 +32,13 @@ class ModelConfig:
     # These values follow the Qwen-style pixel-budget approach and act as
     # sane defaults when configs do not override them explicitly.
     min_pixels: int | None = 200704
-    # 4K UHD pixel budget: 3840 x 2160 = 8,294,400
-    max_pixels: int | None = 8294400
+    # 1024 x 1024 pixel budget: 1,048,576
+    max_pixels: int | None = 1048576
 
 
 @dataclass
 class TokenizerConfig:
-    num_bins: int = 2048
+    num_bins: int = 1024
     add_eos_token: bool = True
 
 

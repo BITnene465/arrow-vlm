@@ -18,14 +18,15 @@ model:
     - projector
     - multi_modal_projector
   # 受控动态分辨率，而不是原生大图直接输入。
-  # 这里保留长宽比，只限制总像素预算。LoRA 首轮优先保证细小箭头可见性，
-  # 因此使用相对更高的上限。
+  # 这里保留长宽比，只限制总像素预算。默认先收紧到 1024 x 1024，
+  # 优先保证显存稳定和训练闭环。
   min_pixels: 200704
-  # 4K UHD total pixel budget: 3840 x 2160 = 8,294,400
-  max_pixels: 8294400
+  # 1024 x 1024 total pixel budget: 1,048,576
+  max_pixels: 1048576
 
 tokenizer:
-  num_bins: 2048
+  # 坐标离散为 1024 档，对应 <|x_0000|> ~ <|x_1023|> / <|y_0000|> ~ <|y_1023|>
+  num_bins: 1024
   add_eos_token: true
 
 prompt:

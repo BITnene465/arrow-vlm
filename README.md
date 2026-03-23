@@ -136,13 +136,25 @@ This converts the raw LabelMe-style arrow annotations into normalized `train/val
 
 ### 4. Train
 
-LoRA:
+Single-GPU LoRA:
+
+```bash
+python scripts/train.py --config configs/train_lora.yaml
+```
+
+Single-GPU full fine-tuning:
+
+```bash
+python scripts/train.py --config configs/train_full_ft.yaml
+```
+
+Multi-GPU LoRA:
 
 ```bash
 torchrun --nproc_per_node=2 scripts/train.py --config configs/train_lora.yaml
 ```
 
-Full fine-tuning:
+Multi-GPU full fine-tuning:
 
 ```bash
 torchrun --nproc_per_node=2 scripts/train.py --config configs/train_full_ft.yaml
