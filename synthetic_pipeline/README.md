@@ -90,6 +90,13 @@ python synthetic_pipeline/generate_sync_dataset.py \
 
 - 多档分辨率，从低分辨率到 `1024`
 - 不同数量的 arrows
+- 横平竖直主方向箭头占多数，贴近真实图中的主流分布
+- 更宽的尺寸分布：
+  - 小箭头
+  - 中等箭头
+  - 大箭头
+  - `single_hero` 单大箭头场景
+  - `single_crop` 单箭头 crop 场景
 - 不同点数的 polyline arrows
 - 多样式曲线箭头，关键点顺序固定为：
   - 第一个点 = 箭头尾部
@@ -110,6 +117,13 @@ python synthetic_pipeline/generate_sync_dataset.py \
 - 适度遮挡
 
 同时会限制实例之间的大面积重叠，避免分布过度偏向极端拥挤场景。
+
+`single_crop` 场景会混入最终数据集，而不是单独导出一套子集。它的特点是：
+
+- 每图只保留一个主箭头
+- crop 相对 bbox 留一圈上下文边距
+- 干扰元素和遮挡明显减少
+- 仍然保留一定背景上下文，贴近检测器先裁一块再做精细解析的使用方式
 
 此外当前还加入了：
 
@@ -158,3 +172,4 @@ python synthetic_pipeline/generate_sync_dataset.py \
 - 已加入多主题箭头风格、不同粗细、不同线型
 - 已加入曲线箭头，关键点顺序固定为尾部到头部
 - 已加入双头箭头作为干扰元素
+- 已加入 `single_crop` 单箭头 crop 场景，并混入最终生成分布

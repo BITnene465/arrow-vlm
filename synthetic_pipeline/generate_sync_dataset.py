@@ -64,6 +64,14 @@ def _sample_arrow_count(rng: random.Random, bins: list[dict[str, Any]]) -> int:
     return rng.randint(int(bucket["min"]), int(bucket["max"]))
 
 
+def _sample_arrow_count_for_scene(rng: random.Random, bins: list[dict[str, Any]], scene_mode: str) -> int:
+    if scene_mode in {"single_hero", "single_crop"}:
+        return 1
+    if scene_mode == "sparse_large":
+        return rng.randint(1, 6)
+    return _sample_arrow_count(rng, bins)
+
+
 def _sample_point_count(rng: random.Random, bins: list[dict[str, Any]]) -> int:
     bucket = _weighted_range_choice(rng, bins)
     return int(bucket["count"])
@@ -71,6 +79,14 @@ def _sample_point_count(rng: random.Random, bins: list[dict[str, Any]]) -> int:
 
 def _sample_geometry_mode(rng: random.Random, entries: list[dict[str, Any]]) -> str:
     return str(_weighted_range_choice(rng, entries)["name"])
+
+
+def _sample_scene_mode(rng: random.Random, entries: list[dict[str, Any]]) -> str:
+    return str(_weighted_range_choice(rng, entries)["name"])
+
+
+def _sample_arrow_size_mode(rng: random.Random, entries: list[dict[str, Any]]) -> dict[str, Any]:
+    return _weighted_range_choice(rng, entries)
 
 
 def _clamp(value: float, lower: float, upper: float) -> float:
@@ -191,15 +207,30 @@ def _sample_arrow_points(
     point_count: int,
     layout_cfg: dict[str, Any],
     geometry_mode: str,
+    size_mode: dict[str, Any],
     rng: random.Random,
 ) -> list[tuple[float, float]]:
     margin = max(int(min(width, height) * float(layout_cfg["edge_margin_ratio"])), 12)
-    min_length = min(width, height) * float(layout_cfg["min_arrow_length_ratio"])
-    max_length = min(width, height) * float(layout_cfg["max_arrow_length_ratio"])
+    default_min_length = min(width, height) * float(layout_cfg["min_arrow_length_ratio"])
+    default_max_length = min(width, height) * float(layout_cfg["max_arrow_length_ratio"])
+    min_length = min(width, height) * float(size_mode.get("min_length_ratio", layout_cfg["min_arrow_length_ratio"]))
+    max_length = min(width, height) * float(size_mode.get("max_length_ratio", layout_cfg["max_arrow_length_ratio"]))
+    min_length = max(min_length, default_min_length * 0.6)
+    max_length = min(max(max_length, min_length + 8.0), min(width, height) * 0.95)
 
     start_x = rng.uniform(margin, width - margin)
     start_y = rng.uniform(margin, height - margin)
-    angle = rng.uniform(0, math.tau)
+    if rng.random() < float(layout_cfg.get("primary_axis_aligned_probability", 0.0)):
+        base_angle = rng.choice([0.0, math.pi / 2, math.pi, 3 * math.pi / 2])
+        jitter = math.radians(
+            rng.uniform(
+                -float(layout_cfg.get("orthogonal_angle_jitter_deg", 0.0)),
+                float(layout_cfg.get("orthogonal_angle_jitter_deg", 0.0)),
+            )
+        )
+        angle = base_angle + jitter
+    else:
+        angle = rng.uniform(0, math.tau)
     total_length = rng.uniform(min_length, max_length)
     end_x = _clamp(start_x + math.cos(angle) * total_length, margin, width - margin)
     end_y = _clamp(start_y + math.sin(angle) * total_length, margin, height - margin)
@@ -374,14 +405,27 @@ def _sample_arrow_style(style_cfg: dict[str, Any], rng: random.Random) -> dict[s
     }
 
 
+def _scene_style_config(style_cfg: dict[str, Any], scene_mode: str) -> dict[str, Any]:
+    if scene_mode != "single_crop":
+        return style_cfg
+    adjusted = dict(style_cfg)
+    adjusted["distractor_lines_range"] = [0, 5]
+    adjusted["distractor_boxes_range"] = [0, 2]
+    adjusted["text_like_strokes_range"] = [0, 4]
+    adjusted["double_head_distractor_range"] = [0, 2]
+    adjusted["occluder_count_range"] = [0, 2]
+    return adjusted
+
+
 def _sample_arrow(
     width: int,
     height: int,
     cfg: dict[str, Any],
     existing_boxes: list[list[float]],
+    scene_mode: str,
     rng: random.Random,
 ) -> tuple[ArrowSpec, dict[str, Any]] | None:
-    style_cfg = cfg["style"]
+    style_cfg = _scene_style_config(cfg["style"], scene_mode)
     layout_cfg = cfg["layout"]
     max_iou = float(layout_cfg["max_instance_iou"])
     retries = int(layout_cfg["max_generation_retries_per_arrow"])
@@ -389,9 +433,17 @@ def _sample_arrow(
 
     for _ in range(retries):
         geometry_mode = _sample_geometry_mode(rng, cfg["geometry_modes"])
-        points = _sample_arrow_points(width, height, point_count, layout_cfg, geometry_mode, rng)
+        size_mode = _sample_arrow_size_mode(rng, cfg["arrow_size_modes"])
+        if scene_mode == "single_hero":
+            size_mode = {"name": "hero", "min_length_ratio": 0.55, "max_length_ratio": 0.92}
+        elif scene_mode == "single_crop":
+            size_mode = {"name": "single_crop", "min_length_ratio": 0.36, "max_length_ratio": 0.74}
+        elif scene_mode == "sparse_large" and rng.random() < 0.7:
+            size_mode = {"name": "large", "min_length_ratio": 0.28, "max_length_ratio": 0.62}
+        points = _sample_arrow_points(width, height, point_count, layout_cfg, geometry_mode, size_mode, rng)
         arrow_style = _sample_arrow_style(style_cfg, rng)
         arrow_style["geometry_mode"] = geometry_mode
+        arrow_style["size_mode"] = str(size_mode.get("name", "medium"))
         line_width = int(arrow_style["line_width"])
         head_len = int(arrow_style["head_len"])
         head_width = int(arrow_style["head_width"])
@@ -438,7 +490,7 @@ def _draw_double_head_distractors(draw: ImageDraw.ImageDraw, width: int, height:
     style_cfg = cfg["style"]
     count = rng.randint(*style_cfg["double_head_distractor_range"])
     for _ in range(count):
-        sampled = _sample_arrow(width, height, cfg, [], rng)
+        sampled = _sample_arrow(width, height, cfg, [], "normal", rng)
         if sampled is None:
             continue
         spec, arrow_style = sampled
@@ -485,16 +537,18 @@ def _degrade_image(image: Image.Image, style_cfg: dict[str, Any], rng: random.Ra
 
 def _generate_sample(split: str, index: int, cfg: dict[str, Any], rng: random.Random, output_dir: Path) -> dict[str, Any]:
     width, height = _sample_resolution(rng, cfg["resolution_buckets"])
-    image = _make_background(width, height, cfg["style"], rng)
+    scene_mode = _sample_scene_mode(rng, cfg["scene_modes"])
+    style_cfg = _scene_style_config(cfg["style"], scene_mode)
+    image = _make_background(width, height, style_cfg, rng)
     draw = ImageDraw.Draw(image)
-    _draw_distractors(draw, width, height, cfg["style"], rng)
+    _draw_distractors(draw, width, height, style_cfg, rng)
 
-    requested_arrows = _sample_arrow_count(rng, cfg["arrow_count_bins"])
+    requested_arrows = _sample_arrow_count_for_scene(rng, cfg["arrow_count_bins"], scene_mode)
     instances: list[dict[str, Any]] = []
     existing_boxes: list[list[float]] = []
 
     for _ in range(requested_arrows):
-        sampled = _sample_arrow(width, height, cfg, existing_boxes, rng)
+        sampled = _sample_arrow(width, height, cfg, existing_boxes, scene_mode, rng)
         if sampled is None:
             continue
         spec, arrow_style = sampled
@@ -515,7 +569,7 @@ def _generate_sample(split: str, index: int, cfg: dict[str, Any], rng: random.Ra
         existing_boxes.append(spec.bbox)
 
     if not instances:
-        sampled = _sample_arrow(width, height, cfg, existing_boxes, rng)
+        sampled = _sample_arrow(width, height, cfg, existing_boxes, scene_mode, rng)
         if sampled is not None:
             spec, arrow_style = sampled
             _draw_arrow(
@@ -533,9 +587,19 @@ def _generate_sample(split: str, index: int, cfg: dict[str, Any], rng: random.Ra
             )
             instances.append({"bbox": spec.bbox, "keypoints": spec.keypoints})
 
-    _draw_double_head_distractors(draw, width, height, cfg, rng)
-    _draw_occluders(draw, width, height, cfg["style"], rng)
-    image = _degrade_image(image, cfg["style"], rng)
+    single_crop_padding_ratio = None
+    if scene_mode == "single_crop" and instances:
+        bbox = instances[0]["bbox"]
+        bbox_w = max(float(bbox[2]) - float(bbox[0]), 1.0)
+        bbox_h = max(float(bbox[3]) - float(bbox[1]), 1.0)
+        single_crop_padding_ratio = round(
+            max((width - bbox_w) / bbox_w, (height - bbox_h) / bbox_h),
+            3,
+        )
+
+    _draw_double_head_distractors(draw, width, height, {"style": style_cfg, "layout": cfg["layout"], "point_count_bins": cfg["point_count_bins"], "geometry_modes": cfg["geometry_modes"], "arrow_size_modes": cfg["arrow_size_modes"]}, rng)
+    _draw_occluders(draw, width, height, style_cfg, rng)
+    image = _degrade_image(image, style_cfg, rng)
 
     sample_id = f"{split}_{index:06d}"
     absolute_image_path = output_dir / "images" / split / f"{sample_id}.jpg"
@@ -551,6 +615,8 @@ def _generate_sample(split: str, index: int, cfg: dict[str, Any], rng: random.Ra
         "image_path": image_path_value,
         "image_width": width,
         "image_height": height,
+        "scene_mode": scene_mode,
+        "single_crop_padding_ratio": single_crop_padding_ratio,
         "instances": instances,
     }
 

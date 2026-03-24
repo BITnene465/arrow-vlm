@@ -63,6 +63,34 @@ geometry_modes:
   - name: curve_hook
     weight: 0.04
 
+scene_modes:
+  - name: normal
+    weight: 0.62
+  - name: sparse_large
+    weight: 0.1
+  - name: single_hero
+    weight: 0.05
+  - name: single_crop
+    weight: 0.23
+
+arrow_size_modes:
+  - name: small
+    min_length_ratio: 0.05
+    max_length_ratio: 0.16
+    weight: 0.28
+  - name: medium
+    min_length_ratio: 0.12
+    max_length_ratio: 0.30
+    weight: 0.42
+  - name: large
+    min_length_ratio: 0.24
+    max_length_ratio: 0.55
+    weight: 0.22
+  - name: hero
+    min_length_ratio: 0.45
+    max_length_ratio: 0.88
+    weight: 0.08
+
 layout:
   max_instance_iou: 0.18
   max_generation_retries_per_arrow: 60
@@ -70,6 +98,8 @@ layout:
   min_arrow_length_ratio: 0.08
   max_arrow_length_ratio: 0.35
   turn_angle_jitter_deg: 45
+  primary_axis_aligned_probability: 0.58
+  orthogonal_angle_jitter_deg: 10
 
 style:
   background_modes:
