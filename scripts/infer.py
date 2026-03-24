@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from vlm_det.infer.runner import load_inference_runner
+from vlm_det.infer.visualize import format_prediction_summary
 
 
 def parse_args() -> argparse.Namespace:
@@ -15,15 +15,39 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", required=True)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--image", required=True)
+    parser.add_argument("--output-dir", default=None, help="Optional directory to save parsed prediction files.")
     return parser.parse_args()
+
+
+def _save_outputs(
+    output_dir: Path,
+    image_path: Path,
+    raw_text: str,
+    prediction: dict[str, object],
+) -> tuple[Path, Path]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stem = image_path.stem
+    prediction_path = output_dir / f"{stem}.prediction.json"
+    raw_text_path = output_dir / f"{stem}.raw.txt"
+    prediction_path.write_text(json.dumps(prediction, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    raw_text_path.write_text(raw_text + "\n", encoding="utf-8")
+    return prediction_path, raw_text_path
 
 
 def main() -> None:
     args = parse_args()
+    from vlm_det.infer.runner import load_inference_runner
+
     runner = load_inference_runner(args.config, args.checkpoint)
-    image = Image.open(Path(args.image)).convert("RGB")
-    _, prediction = runner.predict(image)
+    image_path = Path(args.image)
+    image = Image.open(image_path).convert("RGB")
+    raw_text, prediction = runner.predict(image)
     print(json.dumps(prediction, ensure_ascii=False, indent=2))
+    print(format_prediction_summary(prediction))
+    if args.output_dir is not None:
+        prediction_path, raw_text_path = _save_outputs(Path(args.output_dir), image_path, raw_text, prediction)
+        print(f"Saved parsed prediction to: {prediction_path}")
+        print(f"Saved raw output to: {raw_text_path}")
 
 
 if __name__ == "__main__":

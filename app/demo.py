@@ -6,21 +6,10 @@ import json
 from pathlib import Path
 
 import gradio as gr
-from PIL import Image, ImageDraw
+from PIL import Image
 
 from vlm_det.infer.runner import ArrowInferenceRunner, load_inference_runner
-
-
-PALETTE = [
-    "#e63946",
-    "#1d3557",
-    "#2a9d8f",
-    "#f4a261",
-    "#6a4c93",
-    "#d62828",
-    "#0077b6",
-    "#588157",
-]
+from vlm_det.infer.visualize import draw_prediction, format_prediction_summary
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Launch a Gradio demo for ArrowVLM.")
@@ -30,45 +19,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=7860)
     parser.add_argument("--share", action="store_true")
     return parser.parse_args()
-
-def _draw_prediction(image: Image.Image, prediction: dict[str, Any]) -> Image.Image:
-    canvas = image.convert("RGB").copy()
-    draw = ImageDraw.Draw(canvas)
-    for index, instance in enumerate(prediction.get("instances", [])):
-        color = PALETTE[index % len(PALETTE)]
-        bbox = [float(value) for value in instance.get("bbox", [])]
-        if len(bbox) == 4:
-            draw.rectangle(bbox, outline=color, width=3)
-        keypoints = instance.get("keypoints", [])
-        xy_points = [(float(point[0]), float(point[1])) for point in keypoints]
-        if len(xy_points) >= 2:
-            draw.line(xy_points, fill=color, width=3)
-        for point_index, point in enumerate(keypoints):
-            x = float(point[0])
-            y = float(point[1])
-            visibility = str(point[2])
-            radius = 5 if visibility == "visible" else 4
-            fill = color if visibility == "visible" else "#ffffff"
-            draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=fill, outline=color, width=2)
-            if point_index == 0:
-                draw.text((x + 6, y - 12), "S", fill=color)
-            elif point_index == len(keypoints) - 1:
-                draw.text((x + 6, y - 12), "H", fill=color)
-        if len(bbox) == 4:
-            draw.text((bbox[0] + 4, bbox[1] + 4), f"arrow {index + 1}", fill=color)
-    return canvas
-
-
-def _format_summary(prediction: dict[str, Any]) -> str:
-    instances = prediction.get("instances", [])
-    point_count = sum(len(instance.get("keypoints", [])) for instance in instances)
-    return "\n".join(
-        [
-            f"Detected arrows: {len(instances)}",
-            f"Total keypoints: {point_count}",
-        ]
-    )
-
 
 def build_demo(runner: ArrowInferenceRunner) -> gr.Blocks:
     title = "ArrowVLM Demo"
@@ -83,8 +33,8 @@ def build_demo(runner: ArrowInferenceRunner) -> gr.Blocks:
         pil_image = image.convert("RGB")
         try:
             raw_text, prediction = runner.predict(pil_image)
-            overlay = _draw_prediction(pil_image, prediction)
-            summary = _format_summary(prediction)
+            overlay = draw_prediction(pil_image, prediction)
+            summary = format_prediction_summary(prediction)
             formatted_json = json.dumps(prediction, ensure_ascii=False, indent=2)
             return overlay, summary, formatted_json, raw_text
         except Exception as exc:  # noqa: BLE001
