@@ -45,13 +45,13 @@ finetune:
 
 train:
   epochs: 2
-  per_device_batch_size: 2
+  per_device_batch_size: 1
   grad_accum_steps: 4
   learning_rate: 0.00001
   embed_learning_rate: 0.00001
   lm_head_learning_rate: 0.00001
   weight_decay: 0.01
-  warmup_ratio: 0.03
+  warmup_ratio: 0.1
   scheduler_type: cosine
   max_grad_norm: 4.0
   bf16: true
@@ -65,7 +65,7 @@ train:
   find_unused_parameters: false
 
 eval:
-  per_device_batch_size: 8
+  per_device_batch_size: 4
   # synthetic post-training 使用更长的输出上限，以覆盖多实例与长路径样本
   max_new_tokens: 2048
   num_beams: 1
