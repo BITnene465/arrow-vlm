@@ -10,6 +10,8 @@ from PIL import Image
 
 from vlm_det.utils.io import write_json, write_jsonl
 
+VALID_POINT_LABELS = {"p2", "2", "p1", "1"}
+
 # Some paper figures are extremely large. During data preparation we only need
 # image metadata such as width/height, so disable Pillow's decompression bomb
 # guard here to avoid aborting on legitimate oversized figures.
@@ -81,7 +83,12 @@ def _normalize_sample(json_path: Path, image_dir: Path, stats: Counter) -> dict[
 
         raw_keypoints = []
         keypoints = []
+        invalid_point_label = False
         for point in points:
+            label = str(point.get("label", "")).lower()
+            if label not in VALID_POINT_LABELS:
+                invalid_point_label = True
+                break
             x_value = float(point["points"][0][0])
             y_value = float(point["points"][0][1])
             raw_keypoints.append([x_value, y_value])
@@ -91,6 +98,9 @@ def _normalize_sample(json_path: Path, image_dir: Path, stats: Counter) -> dict[
                     _clip(y_value, 0.0, height - 1),
                 ]
             )
+        if invalid_point_label:
+            stats["instances_dropped_unknown_point_label"] += 1
+            continue
 
         instances.append(
             {
