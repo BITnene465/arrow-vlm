@@ -32,10 +32,7 @@ def draw_prediction(image: Image.Image, prediction: dict[str, Any]) -> Image.Ima
         for point_index, point in enumerate(keypoints):
             x = float(point[0])
             y = float(point[1])
-            visibility = str(point[2])
-            radius = 5 if visibility == "visible" else 4
-            fill = color if visibility == "visible" else "#ffffff"
-            draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=fill, outline=color, width=2)
+            draw.ellipse((x - 5, y - 5, x + 5, y + 5), fill=color, outline=color, width=2)
             if point_index == 0:
                 draw.text((x + 6, y - 12), "S", fill=color)
             elif point_index == len(keypoints) - 1:

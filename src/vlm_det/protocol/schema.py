@@ -4,14 +4,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-Visibility = str
-
-
 @dataclass
 class ArrowPoint:
     x: float
     y: float
-    visibility: Visibility
 
 
 @dataclass
@@ -31,10 +27,9 @@ class ArrowAnnotation:
 def annotation_from_dict(payload: dict[str, Any]) -> ArrowAnnotation:
     instances = []
     for item in payload.get("instances", []):
-        keypoints = [
-            ArrowPoint(float(point[0]), float(point[1]), str(point[2]))
-            for point in item.get("keypoints", [])
-        ]
+        keypoints = []
+        for point in item.get("keypoints", []):
+            keypoints.append(ArrowPoint(float(point[0]), float(point[1])))
         instances.append(
             ArrowInstance(
                 bbox=[float(value) for value in item.get("bbox", [])],
@@ -53,7 +48,7 @@ def annotation_to_dict(annotation: ArrowAnnotation) -> dict[str, Any]:
             {
                 "bbox": list(instance.bbox),
                 "keypoints": [
-                    [point.x, point.y, point.visibility] for point in instance.keypoints
+                    [point.x, point.y] for point in instance.keypoints
                 ],
                 **({"group_id": instance.group_id} if instance.group_id is not None else {}),
                 **({"raw_bbox": instance.raw_bbox} if instance.raw_bbox is not None else {}),

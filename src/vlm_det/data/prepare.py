@@ -10,14 +10,6 @@ from PIL import Image
 
 from vlm_det.utils.io import write_json, write_jsonl
 
-
-VISIBILITY_MAP = {
-    "p2": "visible",
-    "2": "visible",
-    "p1": "occluded",
-    "1": "occluded",
-}
-
 # Some paper figures are extremely large. During data preparation we only need
 # image metadata such as width/height, so disable Pillow's decompression bomb
 # guard here to avoid aborting on legitimate oversized figures.
@@ -89,26 +81,16 @@ def _normalize_sample(json_path: Path, image_dir: Path, stats: Counter) -> dict[
 
         raw_keypoints = []
         keypoints = []
-        invalid_visibility = False
         for point in points:
-            label = str(point.get("label"))
-            if label not in VISIBILITY_MAP:
-                invalid_visibility = True
-                break
             x_value = float(point["points"][0][0])
             y_value = float(point["points"][0][1])
-            visibility = VISIBILITY_MAP[label]
-            raw_keypoints.append([x_value, y_value, visibility])
+            raw_keypoints.append([x_value, y_value])
             keypoints.append(
                 [
                     _clip(x_value, 0.0, width - 1),
                     _clip(y_value, 0.0, height - 1),
-                    visibility,
                 ]
             )
-        if invalid_visibility:
-            stats["instances_dropped_unknown_visibility"] += 1
-            continue
 
         instances.append(
             {

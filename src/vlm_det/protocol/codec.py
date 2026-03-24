@@ -38,7 +38,6 @@ class ArrowCodec:
                 [
                     self._quantize(point.x, image_width),
                     self._quantize(point.y, image_height),
-                    point.visibility,
                 ]
                 for point in instance.keypoints
             ]
@@ -46,7 +45,7 @@ class ArrowCodec:
                 {
                     "label": "arrow",
                     "bbox_2d": bbox,
-                    "points_2d": points,
+                    "keypoints_2d": points,
                 }
             )
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
@@ -75,17 +74,16 @@ class ArrowCodec:
                 self._dequantize(self._parse_coord(bbox_values[3], "y"), image_height),
             ]
 
-            raw_points = item.get("points_2d")
+            raw_points = item.get("keypoints_2d")
             if not isinstance(raw_points, list):
-                raise ValueError(f"Item at index {item_index} must contain points_2d as a list.")
+                raise ValueError(f"Item at index {item_index} must contain keypoints_2d as a list.")
             keypoints: list[ArrowPoint] = []
             for point_index, raw_point in enumerate(raw_points):
-                x_value, y_value, visibility = self._parse_point(raw_point, item_index, point_index)
+                x_value, y_value = self._parse_point(raw_point, item_index, point_index)
                 keypoints.append(
                     ArrowPoint(
                         x=self._dequantize(x_value, image_width),
                         y=self._dequantize(y_value, image_height),
-                        visibility=visibility,
                     )
                 )
             annotation.instances.append(ArrowInstance(bbox=bbox, keypoints=keypoints))
@@ -103,11 +101,6 @@ class ArrowCodec:
                 errors.append(f"instance[{index}] bbox length must be 4")
             if len(instance.keypoints) < 2:
                 errors.append(f"instance[{index}] must contain at least 2 keypoints")
-            for point_index, point in enumerate(instance.keypoints):
-                if point.visibility not in {"visible", "occluded"}:
-                    errors.append(
-                        f"instance[{index}].keypoints[{point_index}] visibility must be visible/occluded"
-                    )
         return ValidationReport(valid=not errors, errors=errors)
 
     def validate_text(self, text: str, image_width: int, image_height: int) -> ValidationReport:
@@ -139,27 +132,20 @@ class ArrowCodec:
             raise ValueError(f"{axis} coordinate {parsed} out of range [0, {self.num_bins - 1}].")
         return parsed
 
-    def _parse_point(self, raw_point: Any, item_index: int, point_index: int) -> tuple[int, int, str]:
+    def _parse_point(self, raw_point: Any, item_index: int, point_index: int) -> tuple[int, int]:
         if isinstance(raw_point, dict):
             point_values = raw_point.get("point_2d") or raw_point.get("point") or raw_point.get("xy")
-            visibility = raw_point.get("visibility")
         else:
             point_values = raw_point
-            visibility = None
 
-        if not isinstance(point_values, list) or len(point_values) < 3:
+        if not isinstance(point_values, list) or len(point_values) != 2:
             raise ValueError(
-                f"Item {item_index} point {point_index} must be [x, y, visibility]."
+                f"Item {item_index} point {point_index} must be [x, y]."
             )
 
         x_value = self._parse_coord(point_values[0], "x")
         y_value = self._parse_coord(point_values[1], "y")
-        point_visibility = visibility if visibility is not None else point_values[2]
-        if point_visibility not in {"visible", "occluded"}:
-            raise ValueError(
-                f"Item {item_index} point {point_index} visibility must be visible/occluded."
-            )
-        return x_value, y_value, point_visibility
+        return x_value, y_value
 
     def _parse_json_payload(self, text: str) -> Any:
         stripped = text.strip()

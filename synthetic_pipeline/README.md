@@ -43,7 +43,7 @@ data/sync/
   {
     "label": "arrow",
     "bbox_2d": [123, 456, 789, 900],
-    "points_2d": [[130, 470, "visible"], [188, 471, "occluded"]]
+    "keypoints_2d": [[130, 470], [188, 471]]
   }
 ]
 ```

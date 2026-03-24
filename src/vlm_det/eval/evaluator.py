@@ -132,7 +132,6 @@ class ArrowEvaluator:
         fn = counts["bbox_fn"]
         matched = max(tp, 1.0)
         point_count = max(counts["point_count"], 1.0)
-        visibility_count = max(counts["visibility_count"], 1.0)
         gt_instances = max(counts["gt_instances"], 1.0)
         precision = tp / max(tp + fp, 1.0)
         recall = tp / max(tp + fn, 1.0)
@@ -145,7 +144,6 @@ class ArrowEvaluator:
             "val/bbox_iou_mean": counts["bbox_iou_sum"] / matched,
             "val/keypoint_l2_mean": counts["point_distance_sum"] / point_count,
             "val/keypoint_count_acc": counts["keypoint_count_exact"] / matched,
-            "val/visibility_acc": counts["visibility_correct"] / visibility_count,
             "val/end_to_end_score": counts["end_to_end_correct"] / gt_instances,
         }
 
@@ -161,8 +159,6 @@ class ArrowEvaluator:
             "bbox_iou_sum": 0.0,
             "point_distance_sum": 0.0,
             "point_count": 0.0,
-            "visibility_correct": 0.0,
-            "visibility_count": 0.0,
             "keypoint_count_exact": 0.0,
             "end_to_end_correct": 0.0,
         }
@@ -213,14 +209,12 @@ class ArrowEvaluator:
             point_limit = min(len(gt_points), len(pred_points))
             all_points_strict = len(gt_points) == len(pred_points)
             for point_index in range(point_limit):
-                gx, gy, gv = gt_points[point_index]
-                px, py, pv = pred_points[point_index]
+                gx, gy = gt_points[point_index][:2]
+                px, py = pred_points[point_index][:2]
                 distance = math.dist((gx, gy), (px, py))
                 counts["point_distance_sum"] += distance
                 counts["point_count"] += 1.0
-                counts["visibility_correct"] += float(gv == pv)
-                counts["visibility_count"] += 1.0
-                if gv != pv or distance > self.strict_point_distance_px:
+                if distance > self.strict_point_distance_px:
                     all_points_strict = False
             if point_limit != len(gt_points) or point_limit != len(pred_points):
                 all_points_strict = False

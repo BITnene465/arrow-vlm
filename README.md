@@ -3,8 +3,7 @@
 Train `Qwen3-VL` to detect arrows in scientific figures and output structured grounding results with:
 
 - one `bbox_2d` per arrow
-- one ordered `points_2d` chain per arrow
-- one visibility label per keypoint
+- one ordered `keypoints_2d` chain per arrow
 
 This branch is the `protocol-v2` refactor. It moves the project closer to the official `Qwen3-VL` grounding usage pattern:
 
@@ -21,10 +20,10 @@ Each prediction is a JSON array. Every item must be:
 {
   "label": "arrow",
   "bbox_2d": [123, 456, 789, 900],
-  "points_2d": [
-    [130, 470, "visible"],
-    [188, 471, "occluded"],
-    [270, 590, "visible"]
+  "keypoints_2d": [
+    [130, 470],
+    [188, 471],
+    [270, 590]
   ]
 }
 ```
@@ -33,9 +32,8 @@ Rules:
 
 - all coordinates are normalized integers in `[0, 999]`
 - `bbox_2d` uses `[x1, y1, x2, y2]`
-- `points_2d` are ordered from **tail to head**
-- each point is `[x, y, visibility]`
-- visibility must be `"visible"` or `"occluded"`
+- `keypoints_2d` are ordered from **tail to head**
+- each point is `[x, y]`
 - each arrow must contain at least `2` points
 
 At training and evaluation time, coordinates are mapped between:
@@ -56,7 +54,7 @@ Earlier versions of this project used a custom protocol with many task-specific 
 That formulation was harder to train and drifted away from the official `Qwen3-VL` grounding style. This branch reduces that mismatch by:
 
 - keeping the output machine-readable
-- retaining keypoints and visibility
+- retaining keypoints
 - avoiding new protocol token embeddings
 - staying closer to the model’s native text-generation distribution
 
