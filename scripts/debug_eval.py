@@ -13,7 +13,6 @@ from vlm_det.data.collator import ArrowSFTCollator
 from vlm_det.data.dataset import ArrowSFTDataset
 from vlm_det.modeling.builder import build_model_tokenizer_processor
 from vlm_det.protocol.codec import ArrowCodec
-from vlm_det.protocol.tokens import ARROWS_END_TOKEN
 from vlm_det.utils.checkpoint import load_training_checkpoint
 from vlm_det.utils.distributed import unwrap_model
 from vlm_det.utils.generation import build_generate_kwargs
@@ -73,7 +72,6 @@ def main() -> None:
         include_targets_in_inputs=False,
         padding_side="left",
     )
-    arrows_end_id = artifacts.tokenizer.convert_tokens_to_ids(ARROWS_END_TOKEN)
 
     end_index = min(args.start_index + args.num_samples, len(dataset))
     if args.start_index >= end_index:
@@ -123,7 +121,6 @@ def main() -> None:
         continuation = output_ids[0, input_context_length:]
         continuation_ids = continuation.tolist()
         generated_tokens = len(continuation_ids)
-        hit_arrows_end = arrows_end_id in continuation_ids if arrows_end_id is not None and arrows_end_id >= 0 else False
         text = artifacts.tokenizer.decode(continuation, skip_special_tokens=False)
         try:
             prediction = codec.decode(
@@ -144,7 +141,7 @@ def main() -> None:
             "image_size": [sample["image_width"], sample["image_height"]],
             "prompt_tokens": prompt_length,
             "generated_tokens": generated_tokens,
-            "hit_arrows_end": hit_arrows_end,
+            "truncated": generated_tokens >= config.eval.max_new_tokens,
             "parse_ok": parse_ok,
             "pred_instances": predicted_instances,
             "gt_instances": len(sample["gt_struct"]["instances"]),

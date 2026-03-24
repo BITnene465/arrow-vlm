@@ -23,30 +23,17 @@ model:
   max_pixels: 1048576
 
 tokenizer:
-  # 坐标离散为 1000 档，对应 <|x_0000|> ~ <|x_0999|> / <|y_0000|> ~ <|y_0999|>
+  # grounding 坐标统一归一化到 0~999 的整数网格
   num_bins: 1000
   add_eos_token: true
 
 prompt:
   system_prompt: ""
   user_prompt: |
-    <|arrow_task|>
-    Output only protocol tokens, with no extra text.
-
-    Use this format:
-    <|arrows_begin|>
-    repeat:
-      <|arrow_begin|>
-      <|box_begin|> x y x y <|box_end|>
-      <|points_begin|>
-      repeat:
-        <|point_begin|> x y <|visible|>/<|occluded|> <|point_end|>
-      <|points_end|>
-      <|arrow_end|>
-    <|arrows_end|>
-
-    Each arrow must contain at least 2 points.
-    Keypoints must be ordered from tail to head.
+    Detect all arrows and output only a JSON array, with no markdown and no extra text.
+    Normalize every coordinate to an integer in [0,999].
+    Each item must be {"label":"arrow","bbox_2d":[x1,y1,x2,y2],"points_2d":[[x,y,"visible"],[x,y,"occluded"]]}.
+    Keypoints must be ordered from tail to head, and each arrow must contain at least 2 points.
 
 data:
   train_path: data/processed/normalized/train.jsonl

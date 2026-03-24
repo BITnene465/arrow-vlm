@@ -38,6 +38,7 @@ class ModelConfig:
 
 @dataclass
 class TokenizerConfig:
+    # Relative grounding coordinates are normalized to integer bins in [0, num_bins - 1].
     num_bins: int = 1000
     add_eos_token: bool = True
 
@@ -46,21 +47,11 @@ class TokenizerConfig:
 class PromptConfig:
     system_prompt: str = ""
     user_prompt: str = (
-        "<|arrow_task|>\n"
-        "Output only protocol tokens, with no extra text.\n\n"
-        "Use this format:\n"
-        "<|arrows_begin|>\n"
-        "repeat:\n"
-        "  <|arrow_begin|>\n"
-        "  <|box_begin|> x y x y <|box_end|>\n"
-        "  <|points_begin|>\n"
-        "  repeat:\n"
-        "    <|point_begin|> x y <|visible|>/<|occluded|> <|point_end|>\n"
-        "  <|points_end|>\n"
-        "  <|arrow_end|>\n"
-        "<|arrows_end|>\n\n"
-        "Each arrow must contain at least 2 points.\n"
-        "Keypoints must be ordered from tail to head."
+        "Detect all arrows and output only a JSON array, with no markdown and no extra text. "
+        "Normalize every coordinate to an integer in [0,999]. "
+        "Each item must be "
+        '{"label":"arrow","bbox_2d":[x1,y1,x2,y2],"points_2d":[[x,y,"visible"],[x,y,"occluded"]]}. '
+        "Keypoints must be ordered from tail to head, and each arrow must contain at least 2 points."
     )
 
 

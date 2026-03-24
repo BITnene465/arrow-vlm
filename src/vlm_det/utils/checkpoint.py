@@ -19,7 +19,6 @@ def save_training_checkpoint(
     scheduler: Any,
     trainer_state: dict[str, Any],
     config_dict: dict[str, Any],
-    special_tokens: list[str],
 ) -> None:
     checkpoint_dir = ensure_dir(checkpoint_dir)
     model_dir = ensure_dir(checkpoint_dir / "model")
@@ -45,20 +44,11 @@ def save_training_checkpoint(
         checkpoint_dir / "meta.json",
         {
             "experiment_name": config_dict["experiment"]["name"],
-            "special_token_count": len(special_tokens),
-            "protocol_version": "arrow_v1",
+            "protocol_version": "arrow_v2_json",
             "config": config_dict,
             "trainer_state": trainer_state,
         },
     )
-    with (checkpoint_dir / "special_tokens.json").open("w", encoding="utf-8") as handle:
-        json.dump({"tokens": special_tokens}, handle, ensure_ascii=False, indent=2)
-
-
-def _load_special_tokens(path: Path) -> list[str]:
-    with path.open("r", encoding="utf-8") as handle:
-        payload = json.load(handle)
-    return payload["tokens"]
 
 
 def load_training_checkpoint(
@@ -74,12 +64,6 @@ def load_training_checkpoint(
     checkpoint_dir = Path(checkpoint_dir)
     state_dict = torch.load(checkpoint_dir / "model" / "state_dict.pt", map_location="cpu")
     unwrap_model(model).load_state_dict(state_dict, strict=strict)
-
-    if tokenizer is not None and (checkpoint_dir / "special_tokens.json").exists():
-        expected_tokens = _load_special_tokens(checkpoint_dir / "special_tokens.json")
-        missing = [token for token in expected_tokens if token not in tokenizer.get_vocab()]
-        if missing and strict:
-            raise ValueError(f"Tokenizer is missing {len(missing)} expected special tokens.")
 
     trainer_state = {}
     trainer_state_path = checkpoint_dir / "trainer_state.json"

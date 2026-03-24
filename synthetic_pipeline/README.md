@@ -2,6 +2,12 @@
 
 这个目录提供第一版最小可用的箭头合成数据 pipeline，用来批量生成 `data/sync/` 数据，并直接接入当前训练框架。
 
+当前分支已经切到更接近 `Qwen3-VL` 官方 grounding 风格的协议：
+
+- 输出直接使用 JSON
+- 坐标统一归一化到 `0~999`
+- 不再依赖 task-specific special tokens
+
 ## 文件
 
 - `generate_sync_dataset.py`
@@ -29,6 +35,18 @@ data/sync/
   - 与当前 `ArrowSFTDataset` 直接兼容
 - `manifest.json`
   - 记录本次生成所用配置与简单统计
+
+训练时，这些 JSONL 记录会被编码成如下监督目标风格：
+
+```json
+[
+  {
+    "label": "arrow",
+    "bbox_2d": [123, 456, 789, 900],
+    "points_2d": [[130, 470, "visible"], [188, 471, "occluded"]]
+  }
+]
+```
 
 ## 快速开始
 
@@ -151,7 +169,7 @@ python scripts/train.py --config configs/train_sync_posttrain.yaml
 - `data/sync/train.jsonl`
 - `data/sync/val.jsonl`
 - `finetune.mode: full`
-- `freeze_vision_tower: true`
+- `freeze_vision_tower: false`
 
 ## 备注
 
@@ -168,8 +186,9 @@ python synthetic_pipeline/generate_sync_dataset.py \
 
 - 已支持直接导出 `data/sync/`，与当前训练框架兼容
 - 已加入 `train_sync_posttrain.yaml` 作为 synthetic post-training 配置
-- 坐标离散统一为 `1000 x 1000` 网格
+- 坐标统一归一化到 `0~999`
 - 已加入多主题箭头风格、不同粗细、不同线型
 - 已加入曲线箭头，关键点顺序固定为尾部到头部
 - 已加入双头箭头作为干扰元素
 - 已加入 `single_crop` 单箭头 crop 场景，并混入最终生成分布
+- 已切换到 JSON 数字协议，更贴近 `Qwen3-VL` 官方 grounding 用法

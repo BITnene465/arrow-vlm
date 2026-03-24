@@ -20,7 +20,7 @@ from vlm_det.utils.logging import ExperimentLogger, format_count
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train Qwen3-VL on arrow detection protocol.")
+    parser = argparse.ArgumentParser(description="Train Qwen3-VL on arrow grounding and keypoint prediction.")
     parser.add_argument("--config", required=True)
     parser.add_argument("--resume-from", default=None)
     return parser.parse_args()
@@ -126,8 +126,7 @@ def main() -> None:
     total_params = build_artifacts.trainable_summary["total_params"]
     trainable_ratio = 100.0 * trainable_params / max(total_params, 1)
     logger.info(
-        "Loaded model with "
-        f"{build_artifacts.num_added_tokens} added tokens; "
+        "Loaded model; "
         f"trainable={format_count(trainable_params)} / {format_count(total_params)} "
         f"({trainable_ratio:.2f}%)"
     )
@@ -156,7 +155,6 @@ def main() -> None:
         device=dist_ctx.device,
         rank=dist_ctx.rank,
         world_size=dist_ctx.world_size,
-        special_tokens=build_artifacts.special_tokens,
         evaluator=evaluator,
         logger=logger,
     )

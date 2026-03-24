@@ -11,15 +11,12 @@ from peft import LoraConfig, TaskType, get_peft_model
 from transformers import AutoProcessor, AutoTokenizer
 
 from vlm_det.config import ExperimentRuntimeConfig
-from vlm_det.protocol.tokens import build_special_tokens
 
 @dataclass
 class BuildArtifacts:
     model: torch.nn.Module
     tokenizer: Any
     processor: Any
-    special_tokens: list[str]
-    num_added_tokens: int
     trainable_summary: dict[str, int]
 
 
@@ -142,18 +139,6 @@ def build_model_tokenizer_processor(config: ExperimentRuntimeConfig) -> BuildArt
         )
         processor.tokenizer = tokenizer
 
-    special_tokens = build_special_tokens(config.tokenizer.num_bins)
-    tokens_to_add = [token for token in special_tokens if token not in tokenizer.get_vocab()]
-    
-    # 向词表中添加 special token
-    print(f"[builder] adding {len(tokens_to_add)} special tokens...", flush=True)
-    num_added_tokens = tokenizer.add_special_tokens(
-        {"additional_special_tokens": tokens_to_add}
-    )
-    # 调整模型 embedding 层大小，会初始化新 token 的 embedding，原本的 token 的 embedding 会被复制一份
-    print("[builder] resizing token embeddings...", flush=True)
-    model.resize_token_embeddings(len(tokenizer))
-    
     if tokenizer.pad_token_id is None and tokenizer.eos_token is not None:
         tokenizer.pad_token = tokenizer.eos_token
     if hasattr(model, "generation_config") and tokenizer.pad_token_id is not None:
@@ -196,7 +181,5 @@ def build_model_tokenizer_processor(config: ExperimentRuntimeConfig) -> BuildArt
         model=model,
         tokenizer=tokenizer,
         processor=processor,
-        special_tokens=special_tokens,
-        num_added_tokens=num_added_tokens,
         trainable_summary=summary,
     )

@@ -30,7 +30,6 @@ class ArrowTrainer:
         device: torch.device,
         rank: int,
         world_size: int,
-        special_tokens: list[str],
         evaluator=None,
         logger: ExperimentLogger | None = None,
     ) -> None:
@@ -44,7 +43,6 @@ class ArrowTrainer:
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.config = config
-        self.special_tokens = special_tokens
         self.evaluator = evaluator
         self.logger = logger
         self.output_dir = ensure_dir(config.experiment.output_dir)
@@ -214,7 +212,6 @@ class ArrowTrainer:
             scheduler=self.scheduler,
             trainer_state=trainer_state,
             config_dict=config_to_dict(self.config),
-            special_tokens=self.special_tokens,
         )
         self._refresh_alias("last", target_dir)
         if is_best:

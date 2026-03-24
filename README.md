@@ -1,89 +1,85 @@
 # ArrowVLM
 
-Train `Qwen3-VL` to read scientific figures, detect arrows, and generate structured arrow skeletons.
+Train `Qwen3-VL` to detect arrows in scientific figures and output structured grounding results with:
 
-`ArrowVLM` is a focused multimodal fine-tuning stack for a narrow but practical task: understanding arrows in paper figures. Instead of treating the problem as generic captioning or forcing it into a fixed-size pose head, this project trains a vision-language model to emit a strict, parseable protocol containing:
+- one `bbox_2d` per arrow
+- one ordered `points_2d` chain per arrow
+- one visibility label per keypoint
 
-- one bounding box per arrow
-- an ordered, variable-length keypoint chain
-- visibility labels for each keypoint
+This branch is the `protocol-v2` refactor. It moves the project closer to the official `Qwen3-VL` grounding usage pattern:
 
-The result is a training and inference pipeline that stays close to modern VLM practice while remaining usable for structured geometry tasks.
+- use standard chat-style `user` prompts
+- keep coordinates as normalized integers in `[0, 999]`
+- output plain JSON instead of a custom special-token DSL
+- do not extend the tokenizer with task-specific protocol tokens
 
-## Why This Project
+## Task Format
 
-Arrows in technical figures are small, thin, irregular, and often partially occluded. They are also not a good fit for classic fixed-topology pose formulations. This repo takes a different route:
-
-- use `Qwen3-VL-2B-Instruct` as the base model
-- formulate arrow detection as structured sequence generation
-- represent coordinates with discrete special tokens instead of raw numbers
-- keep decoding fully machine-readable through a custom `ArrowCodec`
-
-## Core Ideas
-
-- **Whole-figure training**: the model sees the entire paper figure, not cropped arrow instances.
-- **Structured protocol output**: predictions are emitted through a strict special-token format.
-- **Variable-length skeletons**: each arrow can have a different number of turning points.
-- **Visibility-aware keypoints**: keypoints are labeled as `visible` or `occluded`.
-- **Local-first model loading**: by default, models are loaded from `models/` before falling back to remote sources.
-
-## Output Representation
-
-Each arrow is represented as:
-
-- one `bbox`
-- one ordered keypoint sequence
-- first point = start point
-- last point = arrow head
-- middle points = turning points
-
-Coordinates are normalized on the original image and discretized into `2048` bins using dedicated `x/y` tokens.
-
-A decoded prediction looks like:
+Each prediction is a JSON array. Every item must be:
 
 ```json
 {
-  "instances": [
-    {
-      "bbox": [184, 92, 311, 245],
-      "keypoints": [
-        [190, 97, "visible"],
-        [245, 141, "occluded"],
-        [307, 240, "visible"]
-      ]
-    }
+  "label": "arrow",
+  "bbox_2d": [123, 456, 789, 900],
+  "points_2d": [
+    [130, 470, "visible"],
+    [188, 471, "occluded"],
+    [270, 590, "visible"]
   ]
 }
 ```
 
-The model does not train against this JSON directly. Internally, it learns a stricter special-token protocol defined by `ArrowCodec`.
+Rules:
 
-## What Is Implemented
+- all coordinates are normalized integers in `[0, 999]`
+- `bbox_2d` uses `[x1, y1, x2, y2]`
+- `points_2d` are ordered from **tail to head**
+- each point is `[x, y, visibility]`
+- visibility must be `"visible"` or `"occluded"`
+- each arrow must contain at least `2` points
 
-- `Qwen3-VL` fine-tuning with explicit `LoRA` and `full` modes
-- tokenizer extension and embedding resize for protocol tokens
-- raw-to-normalized conversion from LabelMe-style annotations
-- strict protocol encode/decode with `ArrowCodec`
-- native `torch.distributed` DDP training
-- `wandb` logging and fixed-width `tqdm` progress bars
-- checkpoint save/resume for `last`, `best`, and step-based snapshots
-- local-first inference and single-image decode pipeline
+At training and evaluation time, coordinates are mapped between:
+
+- normalized integer grid `[0, 999]`
+- original image pixel coordinates
+
+The model trains against the JSON text directly.
+
+## Why This Version
+
+Earlier versions of this project used a custom protocol with many task-specific special tokens such as:
+
+- begin/end markers
+- `x/y` coordinate tokens
+- explicit point-list delimiters
+
+That formulation was harder to train and drifted away from the official `Qwen3-VL` grounding style. This branch reduces that mismatch by:
+
+- keeping the output machine-readable
+- retaining keypoints and visibility
+- avoiding new protocol token embeddings
+- staying closer to the model’s native text-generation distribution
 
 ## Repository Layout
 
 ```text
-configs/        training configs
-scripts/        preparation, training, inference, and utility entrypoints
-src/vlm_det/    core package
-data/           raw and processed datasets
-models/         local model weights
+configs/              training configs
+scripts/              preparation, training, inference, and utility entrypoints
+src/vlm_det/          core package
+synthetic_pipeline/   synthetic data generation
+data/                 raw and processed datasets
+models/               local model weights
 ```
 
-## Quick Start
+## Environment
 
-### 1. Create the environment
+This repository is designed around:
 
-This repository is designed around `uv` and Python `3.11`.
+- Python `3.11`
+- `uv`
+- CUDA-enabled PyTorch when training on GPU
+
+Create the environment:
 
 ```bash
 uv venv --python 3.11
@@ -91,7 +87,7 @@ source .venv/bin/activate
 uv pip install -e .
 ```
 
-If you need an explicit CUDA-enabled PyTorch wheel:
+If you want explicit CUDA wheels:
 
 ```bash
 uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
@@ -104,26 +100,9 @@ If you also want the optional FlashAttention dependency:
 uv pip install -e ".[gpu]"
 ```
 
-### 2. Configure local paths
+## Data Preparation
 
-```bash
-cp .env.example .env
-```
-
-Use `.env` for machine-level defaults such as:
-
-- local model path
-- remote fallback model path
-- output directory
-- cache directory
-
-Use `configs/*.yaml` for experiment-specific overrides.
-
-Image inputs are not fed at native resolution. The processor uses bounded
-dynamic resizing via `min_pixels` / `max_pixels`, which keeps aspect ratio
-while preventing oversized figure images from blowing up visual token counts.
-
-### 3. Prepare the dataset
+Raw LabelMe-style annotations can be converted into normalized JSONL files with:
 
 ```bash
 python scripts/prepare_data.py \
@@ -132,35 +111,93 @@ python scripts/prepare_data.py \
   --output-dir data/processed/normalized
 ```
 
-This converts the raw LabelMe-style arrow annotations into normalized `train/val` JSONL files.
+This produces:
 
-### 4. Train
+```text
+data/processed/normalized/train.jsonl
+data/processed/normalized/val.jsonl
+```
 
-Single-GPU LoRA:
+Each record stores:
+
+- image path
+- image width / height
+- per-arrow bbox
+- per-arrow ordered keypoints
+
+The JSONL records are then encoded into the normalized JSON grounding target during dataset loading.
+
+## Synthetic Post-Training Data
+
+Synthetic data generation lives under:
+
+- [synthetic_pipeline/README.md](/Users/nene/codespace/PGstudy/mess_work/vlm_det/synthetic_pipeline/README.md)
+
+The synthetic pipeline writes directly to:
+
+```text
+data/sync/
+  images/
+    train/
+    val/
+  train.jsonl
+  val.jsonl
+  manifest.json
+```
+
+Those files are directly consumable by the existing training stack.
+
+## Training
+
+### Single-GPU LoRA
 
 ```bash
 python scripts/train.py --config configs/train_lora.yaml
 ```
 
-Single-GPU full fine-tuning:
+### Single-GPU Full Fine-Tuning
 
 ```bash
 python scripts/train.py --config configs/train_full_ft.yaml
 ```
 
-Multi-GPU LoRA:
+### Single-GPU Synthetic Post-Training
+
+```bash
+python scripts/train.py --config configs/train_sync_posttrain.yaml
+```
+
+### Multi-GPU
+
+LoRA:
 
 ```bash
 torchrun --nproc_per_node=2 scripts/train.py --config configs/train_lora.yaml
 ```
 
-Multi-GPU full fine-tuning:
+Full FT:
 
 ```bash
 torchrun --nproc_per_node=2 scripts/train.py --config configs/train_full_ft.yaml
 ```
 
-### 5. Run inference
+## Prompting Style
+
+This branch keeps the `system_prompt` interface, but the default configuration follows the official `Qwen3-VL` style:
+
+- no custom system prompt by default
+- the task instruction lives in the `user` message together with the image
+
+The default prompt asks the model to:
+
+- output only a JSON array
+- avoid markdown and extra text
+- use normalized integer coordinates in `[0, 999]`
+- keep keypoints ordered from tail to head
+
+## Inference
+
+Run single-image inference:
 
 ```bash
 python scripts/infer.py \
@@ -169,21 +206,60 @@ python scripts/infer.py \
   --image /path/to/figure.jpg
 ```
 
-### 6. Launch the demo
+Optionally save parsed output:
 
 ```bash
-python app/demo.py \
+python scripts/infer.py \
   --config configs/train_lora.yaml \
-  --checkpoint outputs/your_experiment/checkpoints/best
+  --checkpoint outputs/your_experiment/checkpoints/best \
+  --image /path/to/figure.jpg \
+  --output-dir outputs/infer_results
 ```
 
-## Training Notes
+This saves:
 
-- prompt and image-prefix positions are masked during training
-- only the structured assistant target contributes to the loss
-- protocol tokens are added to the tokenizer and require embedding resize
-- in LoRA mode, `embed_tokens` and `lm_head` remain trainable
-- long outputs are expected; evaluation generation length is configured accordingly
+- `*.prediction.json`
+- `*.raw.txt`
+
+## Evaluation and Debugging
+
+To inspect a few decoded validation samples:
+
+```bash
+python scripts/debug_eval.py \
+  --config configs/train_sync_posttrain.yaml \
+  --checkpoint outputs/your_experiment/checkpoints/last \
+  --split val \
+  --num-samples 1 \
+  --show-text
+```
+
+This prints:
+
+- prompt length
+- generated token count
+- parse success / failure
+- decoded raw text
+
+During training evaluation, preview samples are also logged automatically.
+
+## Important Notes
+
+- images are not fed at raw native resolution without control
+- the processor uses bounded dynamic resizing with `min_pixels` / `max_pixels`
+- decoder-only batch generation must use left padding during evaluation
+- coordinates are normalized to `[0, 999]`, but scoring is still performed in original image pixels after de-normalization
+
+## Current Branch Status
+
+This `protocol-v2` branch intentionally diverges from the older DSL-based protocol. In particular:
+
+- no task-specific protocol token expansion
+- no tokenizer resize for arrow protocol markers
+- no special-token state-machine decoding
+- JSON-based supervision and decoding instead
+
+Old checkpoints trained with the previous DSL protocol should be treated as incompatible with this branch’s task format.
 
 ## License
 
