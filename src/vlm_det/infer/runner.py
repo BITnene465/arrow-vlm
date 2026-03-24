@@ -26,6 +26,7 @@ class ArrowInferenceRunner:
         pil_image = image.convert("RGB")
         width, height = pil_image.size
         model_inputs, prompt_length = self._prepare_inputs(pil_image)
+        input_context_length = int(model_inputs["input_ids"].shape[1])
         raw_model = unwrap_model(self.artifacts.model)
         raw_model.eval()
         with torch.inference_mode():
@@ -41,7 +42,7 @@ class ArrowInferenceRunner:
                     use_cache=self.config.eval.use_cache,
                 ),
             )
-        continuation = output_ids[0, prompt_length:]
+        continuation = output_ids[0, input_context_length:]
         decoded = self.artifacts.tokenizer.decode(continuation, skip_special_tokens=False)
         prediction = self.codec.decode(decoded, image_width=width, image_height=height)
         return decoded, prediction

@@ -68,6 +68,7 @@ def main() -> None:
         min_pixels=config.model.min_pixels,
         max_pixels=config.model.max_pixels,
         include_targets_in_inputs=False,
+        padding_side="left",
     )
     print("[startup] loading datasets...", flush=True)
     train_dataset = ArrowSFTDataset(

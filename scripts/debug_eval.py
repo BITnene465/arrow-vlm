@@ -70,6 +70,7 @@ def main() -> None:
         min_pixels=config.model.min_pixels,
         max_pixels=config.model.max_pixels,
         include_targets_in_inputs=False,
+        padding_side="left",
     )
     arrows_end_id = artifacts.tokenizer.convert_tokens_to_ids(ARROWS_END_TOKEN)
 
@@ -95,6 +96,7 @@ def main() -> None:
         sample = dataset[index]
         batch = collator([sample])
         prompt_length = int(batch["prompt_lengths"][0].item())
+        input_context_length = int(batch["input_ids"].shape[1])
         model_inputs = {
             "input_ids": batch["input_ids"].to(device),
             "attention_mask": batch["attention_mask"].to(device),
@@ -117,7 +119,7 @@ def main() -> None:
             output_ids = model.generate(**model_inputs, **generate_kwargs)
         elapsed = time.perf_counter() - start_time
 
-        continuation = output_ids[0, prompt_length:]
+        continuation = output_ids[0, input_context_length:]
         continuation_ids = continuation.tolist()
         generated_tokens = len(continuation_ids)
         hit_arrows_end = arrows_end_id in continuation_ids if arrows_end_id is not None and arrows_end_id >= 0 else False

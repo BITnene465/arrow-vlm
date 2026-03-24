@@ -81,11 +81,12 @@ class ArrowEvaluator:
             generate_inputs["image_grid_thw"] = batch["image_grid_thw"].to(next(model.parameters()).device)
         generated = model.generate(**generate_inputs)
         counts = self._empty_counts()
+        input_context_length = int(batch["input_ids"].shape[1])
 
         prompt_lengths = batch["prompt_lengths"].tolist()
         for row_index, prompt_length in enumerate(prompt_lengths):
             counts["samples"] += 1.0
-            generated_ids = generated[row_index, prompt_length:]
+            generated_ids = generated[row_index, input_context_length:]
             decoded_text = self.tokenizer.decode(generated_ids, skip_special_tokens=False)
             image_width = int(batch["meta"]["image_width"][row_index])
             image_height = int(batch["meta"]["image_height"][row_index])

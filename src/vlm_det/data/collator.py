@@ -15,6 +15,7 @@ class ArrowSFTCollator:
         min_pixels: int | None = None,
         max_pixels: int | None = None,
         include_targets_in_inputs: bool = True,
+        padding_side: str = "right",
     ) -> None:
         self.processor = processor
         self.tokenizer = tokenizer
@@ -23,6 +24,9 @@ class ArrowSFTCollator:
         self.min_pixels = min_pixels
         self.max_pixels = max_pixels
         self.include_targets_in_inputs = include_targets_in_inputs
+        if padding_side not in {"left", "right"}:
+            raise ValueError(f"Unsupported padding_side={padding_side!r}. Expected 'left' or 'right'.")
+        self.padding_side = padding_side
 
     def __call__(self, batch: list[dict[str, Any]]) -> dict[str, Any]:
         messages = [self._build_messages(item["system_prompt"]) for item in batch]
@@ -79,19 +83,16 @@ class ArrowSFTCollator:
             final_attention_masks.append(attention_mask)
             prompt_length_tensor.append(prefix_ids.shape[0])
 
-        padded_input_ids = torch.nn.utils.rnn.pad_sequence(
+        padded_input_ids = self._pad_sequences(
             final_input_ids,
-            batch_first=True,
             padding_value=pad_id,
         )
-        padded_labels = torch.nn.utils.rnn.pad_sequence(
+        padded_labels = self._pad_sequences(
             final_labels,
-            batch_first=True,
             padding_value=self.ignore_index,
         )
-        padded_attention_masks = torch.nn.utils.rnn.pad_sequence(
+        padded_attention_masks = self._pad_sequences(
             final_attention_masks,
-            batch_first=True,
             padding_value=0,
         )
 
@@ -133,3 +134,21 @@ class ArrowSFTCollator:
             tokenize=False,
             add_generation_prompt=True,
         )
+
+    def _pad_sequences(self, sequences: list[torch.Tensor], padding_value: int) -> torch.Tensor:
+        max_length = max(sequence.shape[0] for sequence in sequences)
+        padded: list[torch.Tensor] = []
+        for sequence in sequences:
+            if sequence.shape[0] == max_length:
+                padded.append(sequence)
+                continue
+            pad = torch.full(
+                (max_length - sequence.shape[0],),
+                padding_value,
+                dtype=sequence.dtype,
+            )
+            if self.padding_side == "left":
+                padded.append(torch.cat([pad, sequence], dim=0))
+            else:
+                padded.append(torch.cat([sequence, pad], dim=0))
+        return torch.stack(padded, dim=0)
