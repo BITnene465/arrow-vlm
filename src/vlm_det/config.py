@@ -111,6 +111,7 @@ class TrainConfig:
 
 @dataclass
 class EvalConfig:
+    per_device_batch_size: int = 1
     max_new_tokens: int = 8192
     num_beams: int = 1
     do_sample: bool = False

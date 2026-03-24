@@ -96,7 +96,7 @@ def main() -> None:
     val_loader = _build_dataloader(
         val_dataset,
         val_collator,
-        config.train.per_device_batch_size,
+        config.eval.per_device_batch_size,
         config.data.num_workers,
         config.data.pin_memory,
         config.data.persistent_workers,
