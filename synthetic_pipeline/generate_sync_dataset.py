@@ -169,6 +169,10 @@ def _draw_distractors(draw: ImageDraw.ImageDraw, width: int, height: int, style_
             draw.line((x1, y_jitter, x2, y_jitter), fill=color, width=1)
 
 
+def _point_in_rect(x: float, y: float, rect: list[int]) -> bool:
+    return rect[0] <= x <= rect[2] and rect[1] <= y <= rect[3]
+
+
 def _apply_render_style(points: list[tuple[float, float]], render_style: str, rng: random.Random) -> list[tuple[float, float]]:
     if render_style == "clean":
         return points
@@ -458,12 +462,7 @@ def _sample_arrow(
             continue
         if any(_bbox_iou(bbox, other) > max_iou for other in existing_boxes):
             continue
-        keypoints: list[list[Any]] = []
-        for point_index, (x, y) in enumerate(points):
-            visibility = "visible"
-            if 0 < point_index < len(points) - 1 and rng.random() < float(style_cfg["occluded_point_probability"]):
-                visibility = "occluded"
-            keypoints.append([round(x, 2), round(y, 2), visibility])
+        keypoints = [[round(x, 2), round(y, 2), "visible"] for x, y in points]
         spec = ArrowSpec(
             bbox=[round(value, 2) for value in bbox],
             keypoints=keypoints,
@@ -472,7 +471,8 @@ def _sample_arrow(
     return None
 
 
-def _draw_occluders(draw: ImageDraw.ImageDraw, width: int, height: int, style_cfg: dict[str, Any], rng: random.Random) -> None:
+def _sample_occluders(width: int, height: int, style_cfg: dict[str, Any], rng: random.Random) -> list[list[int]]:
+    occluders: list[list[int]] = []
     occluder_count = rng.randint(*style_cfg["occluder_count_range"])
     for _ in range(occluder_count):
         occ_w = rng.randint(max(width // 30, 10), max(width // 8, 24))
@@ -481,6 +481,27 @@ def _draw_occluders(draw: ImageDraw.ImageDraw, width: int, height: int, style_cf
         y1 = rng.randint(0, max(height - occ_h - 1, 1))
         x2 = x1 + occ_w
         y2 = y1 + occ_h
+        occluders.append([x1, y1, x2, y2])
+    return occluders
+
+
+def _apply_occluders_to_instances(instances: list[dict[str, Any]], occluders: list[list[int]]) -> None:
+    if not occluders:
+        return
+    for instance in instances:
+        keypoints = instance.get("keypoints", [])
+        for point_index, point in enumerate(keypoints):
+            visibility = "visible"
+            if 0 < point_index < len(keypoints) - 1:
+                px = float(point[0])
+                py = float(point[1])
+                if any(_point_in_rect(px, py, rect) for rect in occluders):
+                    visibility = "occluded"
+            point[2] = visibility
+
+
+def _draw_occluders(draw: ImageDraw.ImageDraw, occluders: list[list[int]], rng: random.Random) -> None:
+    for x1, y1, x2, y2 in occluders:
         gray = rng.randint(210, 245)
         fill = (gray, gray, gray)
         draw.rectangle((x1, y1, x2, y2), fill=fill, outline=fill)
@@ -598,7 +619,9 @@ def _generate_sample(split: str, index: int, cfg: dict[str, Any], rng: random.Ra
         )
 
     _draw_double_head_distractors(draw, width, height, {"style": style_cfg, "layout": cfg["layout"], "point_count_bins": cfg["point_count_bins"], "geometry_modes": cfg["geometry_modes"], "arrow_size_modes": cfg["arrow_size_modes"]}, rng)
-    _draw_occluders(draw, width, height, style_cfg, rng)
+    occluders = _sample_occluders(width, height, style_cfg, rng)
+    _apply_occluders_to_instances(instances, occluders)
+    _draw_occluders(draw, occluders, rng)
     image = _degrade_image(image, style_cfg, rng)
 
     sample_id = f"{split}_{index:06d}"

@@ -67,16 +67,23 @@ class ArrowInferenceRunner:
         return model_inputs, prompt_length
 
     def _build_prompt(self) -> str:
-        messages = [
-            {
-                "role": "system",
-                "content": [{"type": "text", "text": self.config.prompt.system_prompt}],
-            },
+        messages: list[dict[str, Any]] = []
+        if self.config.prompt.system_prompt.strip():
+            messages.append(
+                {
+                    "role": "system",
+                    "content": [{"type": "text", "text": self.config.prompt.system_prompt}],
+                }
+            )
+        messages.append(
             {
                 "role": "user",
-                "content": [{"type": "image"}],
-            },
-        ]
+                "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": self.config.prompt.user_prompt},
+                ],
+            }
+        )
         template_owner = (
             self.artifacts.processor
             if hasattr(self.artifacts.processor, "apply_chat_template")

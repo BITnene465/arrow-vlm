@@ -23,11 +23,13 @@ class ArrowSFTDataset(Dataset):
         jsonl_path: str | Path,
         codec: ArrowCodec,
         system_prompt: str,
+        user_prompt: str,
         shuffle_instances: bool = False,
     ) -> None:
         self.records = load_jsonl(jsonl_path)
         self.codec = codec
         self.system_prompt = system_prompt
+        self.user_prompt = user_prompt
         self.shuffle_instances = shuffle_instances
 
     def __len__(self) -> int:
@@ -68,6 +70,7 @@ class ArrowSFTDataset(Dataset):
             "image_width": int(record["image_width"]),
             "image_height": int(record["image_height"]),
             "system_prompt": self.system_prompt,
+            "user_prompt": self.user_prompt,
             "target_text": target_text,
             "gt_struct": gt_struct,
         }

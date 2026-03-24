@@ -1,6 +1,6 @@
 experiment:
-  name: qwen3_vl_arrow_sync_posttrain_full_ft
-  output_dir: outputs/qwen3_vl_arrow_sync_posttrain_full_ft
+  name: qwen3_vl_sync_posttrain_ft
+  output_dir: outputs/qwen3_vl_sync_posttrain_ft
   seed: 42
 
 model:
@@ -8,7 +8,7 @@ model:
   remote_model_name_or_path: Qwen/Qwen3-VL-2B-Instruct
   trust_remote_code: true
   attn_implementation: flash_attention_2
-  freeze_vision_tower: true
+  freeze_vision_tower: false
   vision_name_substrings:
     - visual
   projector_name_substrings:
@@ -25,9 +25,25 @@ tokenizer:
   add_eos_token: true
 
 prompt:
-  system_prompt: |
+  system_prompt: ""
+  user_prompt: |
     <|arrow_task|>
-    Output all arrows in the predefined format.
+    Output only protocol tokens, with no extra text.
+
+    Use this format:
+    <|arrows_begin|>
+    repeat:
+      <|arrow_begin|>
+      <|box_begin|> x y x y <|box_end|>
+      <|points_begin|>
+      repeat:
+        <|point_begin|> x y <|visible|>/<|occluded|> <|point_end|>
+      <|points_end|>
+      <|arrow_end|>
+    <|arrows_end|>
+
+    Each arrow must contain at least 2 points.
+    Keypoints must be ordered from tail to head.
 
 data:
   train_path: data/sync/train.jsonl
@@ -63,7 +79,8 @@ train:
 
 eval:
   per_device_batch_size: 4
-  max_new_tokens: 512
+  # synthetic post-training 使用更长的输出上限，以覆盖多实例与长路径样本
+  max_new_tokens: 2048
   num_beams: 1
   do_sample: false
   use_cache: true
@@ -75,7 +92,7 @@ eval:
 logging:
   use_wandb: true
   project: vlm_det
-  run_name: qwen3_vl_arrow_sync_posttrain_full_ft
+  run_name: qwen3_vl_sync_posttrain_ft
   progress_ncols: 88
 
 checkpoint:

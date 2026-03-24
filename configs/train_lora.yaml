@@ -30,9 +30,25 @@ tokenizer:
   add_eos_token: true
 
 prompt:
-  system_prompt: |
+  system_prompt: ""
+  user_prompt: |
     <|arrow_task|>
-    Output all arrows in the predefined format.
+    Output only protocol tokens, with no extra text.
+
+    Use this format:
+    <|arrows_begin|>
+    repeat:
+      <|arrow_begin|>
+      <|box_begin|> x y x y <|box_end|>
+      <|points_begin|>
+      repeat:
+        <|point_begin|> x y <|visible|>/<|occluded|> <|point_end|>
+      <|points_end|>
+      <|arrow_end|>
+    <|arrows_end|>
+
+    Each arrow must contain at least 2 points.
+    Keypoints must be ordered from tail to head.
 
 data:
   train_path: data/processed/normalized/train.jsonl

@@ -29,7 +29,7 @@ class ArrowSFTCollator:
         self.padding_side = padding_side
 
     def __call__(self, batch: list[dict[str, Any]]) -> dict[str, Any]:
-        messages = [self._build_messages(item["system_prompt"]) for item in batch]
+        messages = [self._build_messages(item["system_prompt"], item["user_prompt"]) for item in batch]
         prefix_texts = [self._apply_chat_template(message) for message in messages]
         images = [item["image"] for item in batch]
         processor_kwargs = {
@@ -109,23 +109,32 @@ class ArrowSFTCollator:
                 "image_width": [item["image_width"] for item in batch],
                 "image_height": [item["image_height"] for item in batch],
                 "system_prompt": [item["system_prompt"] for item in batch],
+                "user_prompt": [item["user_prompt"] for item in batch],
                 "gt_struct": [item["gt_struct"] for item in batch],
                 "target_text": [item["target_text"] for item in batch],
             },
         }
         return output
 
-    def _build_messages(self, system_prompt: str) -> list[dict[str, Any]]:
-        return [
-            {
-                "role": "system",
-                "content": [{"type": "text", "text": system_prompt}],
-            },
+    def _build_messages(self, system_prompt: str, user_prompt: str) -> list[dict[str, Any]]:
+        messages: list[dict[str, Any]] = []
+        if system_prompt.strip():
+            messages.append(
+                {
+                    "role": "system",
+                    "content": [{"type": "text", "text": system_prompt}],
+                }
+            )
+        messages.append(
             {
                 "role": "user",
-                "content": [{"type": "image"}],
-            },
-        ]
+                "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": user_prompt},
+                ],
+            }
+        )
+        return messages
 
     def _apply_chat_template(self, messages: list[dict[str, Any]]) -> str:
         template_owner = self.processor if hasattr(self.processor, "apply_chat_template") else self.tokenizer

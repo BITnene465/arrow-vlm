@@ -44,9 +44,15 @@ class TokenizerConfig:
 
 @dataclass
 class PromptConfig:
-    system_prompt: str = (
+    system_prompt: str = ""
+    user_prompt: str = (
         "<|arrow_task|>\n"
-        "Output all arrows in the predefined format."
+        "Output all arrows using protocol tokens only. "
+        "Format: <|arrows_begin|> then for each arrow output "
+        "<|arrow_begin|> <|box_begin|> x y x y <|box_end|> "
+        "<|points_begin|> repeated <|point_begin|> x y visibility <|point_end|> "
+        "<|points_end|> <|arrow_end|>, and finish with <|arrows_end|>. "
+        "Keypoints must be ordered from tail to head."
     )
 
 
@@ -116,6 +122,8 @@ class EvalConfig:
     num_beams: int = 1
     do_sample: bool = False
     use_cache: bool = True
+    preview_samples: int = 3
+    preview_char_limit: int = 600
     bbox_iou_threshold: float = 0.5
     strict_point_distance_px: float = 8.0
     monitor_metric: str = "val/end_to_end_score"

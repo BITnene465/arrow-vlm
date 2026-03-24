@@ -75,12 +75,14 @@ def main() -> None:
         jsonl_path=config.data.train_path,
         codec=codec,
         system_prompt=config.prompt.system_prompt,
+        user_prompt=config.prompt.user_prompt,
         shuffle_instances=config.data.shuffle_instances_for_training,
     )
     val_dataset = ArrowSFTDataset(
         jsonl_path=config.data.val_path,
         codec=codec,
         system_prompt=config.prompt.system_prompt,
+        user_prompt=config.prompt.user_prompt,
         shuffle_instances=False,
     )
     print("[startup] building dataloaders...", flush=True)
@@ -136,6 +138,8 @@ def main() -> None:
         num_beams=config.eval.num_beams,
         do_sample=config.eval.do_sample,
         use_cache=config.eval.use_cache,
+        preview_samples=config.eval.preview_samples,
+        preview_char_limit=config.eval.preview_char_limit,
         bbox_iou_threshold=config.eval.bbox_iou_threshold,
         strict_point_distance_px=config.eval.strict_point_distance_px,
     )

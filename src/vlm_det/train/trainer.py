@@ -185,6 +185,9 @@ class ArrowTrainer:
         if self.evaluator is None or self.val_dataloader is None:
             return {}
         metrics = self.evaluator.evaluate_model(self.model, self.val_dataloader)
+        if self.logger is not None:
+            for line in self.evaluator.format_previews():
+                self.logger.info(line)
         if epoch is not None:
             metrics["val/epoch"] = float(epoch)
         if step is not None:
