@@ -49,13 +49,13 @@ finetune:
 
 train:
   epochs: 3
-  per_device_batch_size: 1
-  grad_accum_steps: 8
+  per_device_batch_size: 2
+  grad_accum_steps: 4
   learning_rate: 0.00002
   embed_learning_rate: 0.00002
   lm_head_learning_rate: 0.00002
   weight_decay: 0.01
-  warmup_ratio: 0.03
+  warmup_ratio: 0.1
   scheduler_type: cosine
   max_grad_norm: 1.0
   bf16: true
@@ -69,7 +69,7 @@ train:
   find_unused_parameters: false
 
 eval:
-  per_device_batch_size: 4
+  per_device_batch_size: 8
   # 训练期评估先收紧到 512，避免模型早期无法闭合协议时把生成打满上限。
   # 最终离线评估或部署再单独放宽。
   max_new_tokens: 512

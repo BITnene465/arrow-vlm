@@ -36,7 +36,7 @@ data:
   train_path: data/sync/train.jsonl
   val_path: data/sync/val.jsonl
   shuffle_instances_for_training: true
-  num_workers: 6
+  num_workers: 10
   pin_memory: true
   persistent_workers: true
 
@@ -45,27 +45,27 @@ finetune:
 
 train:
   epochs: 2
-  per_device_batch_size: 1
-  grad_accum_steps: 8
+  per_device_batch_size: 2
+  grad_accum_steps: 4
   learning_rate: 0.00001
   embed_learning_rate: 0.00001
   lm_head_learning_rate: 0.00001
   weight_decay: 0.01
   warmup_ratio: 0.03
   scheduler_type: cosine
-  max_grad_norm: 1.0
+  max_grad_norm: 4.0
   bf16: true
   eval_strategy: epoch
-  eval_start_epoch: 1
-  log_every_steps: 10
+  eval_start_epoch: 0
+  log_every_steps: 40
   eval_every_steps: 1000
   save_every_steps: 1000
   save_step_checkpoints: false
-  keep_last_n_checkpoints: 3
+  keep_last_n_checkpoints: 2
   find_unused_parameters: false
 
 eval:
-  per_device_batch_size: 4
+  per_device_batch_size: 8
   # synthetic post-training 使用更长的输出上限，以覆盖多实例与长路径样本
   max_new_tokens: 2048
   num_beams: 1

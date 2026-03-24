@@ -18,3 +18,4 @@ llamafactory_qwen3vl_grounding/
 models/
 outputs/
 /data/
+wandb/
