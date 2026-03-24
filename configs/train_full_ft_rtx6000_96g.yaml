@@ -86,4 +86,5 @@ logging:
   progress_ncols: 88
 
 checkpoint:
+  init_from: null
   resume_from: null

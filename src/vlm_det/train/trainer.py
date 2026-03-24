@@ -10,7 +10,11 @@ import torch
 from torch.nn.parallel import DistributedDataParallel
 
 from vlm_det.config import ExperimentRuntimeConfig, config_to_dict
-from vlm_det.utils.checkpoint import load_training_checkpoint, save_training_checkpoint
+from vlm_det.utils.checkpoint import (
+    load_initial_model_checkpoint,
+    load_training_checkpoint,
+    save_training_checkpoint,
+)
 from vlm_det.utils.distributed import is_main_process, reduce_numeric_dict, unwrap_model
 from vlm_det.utils.io import ensure_dir
 from vlm_det.utils.logging import ExperimentLogger, create_progress_bar
@@ -238,6 +242,17 @@ class ArrowTrainer:
         self.global_step = int(trainer_state.get("global_step", 0))
         self.best_metric = float(trainer_state.get("best_metric", self.best_metric))
         self.best_checkpoint_path = trainer_state.get("best_checkpoint_path")
+
+    def initialize_model_from_checkpoint(
+        self,
+        path: str,
+        strict: bool = True,
+    ) -> dict[str, Any]:
+        return load_initial_model_checkpoint(
+            checkpoint_dir=path,
+            model=self.model,
+            strict=strict,
+        )
 
     def _move_batch_to_device(self, batch: dict[str, Any]) -> dict[str, Any]:
         model_inputs = {

@@ -139,6 +139,7 @@ class LoggingConfig:
 
 @dataclass
 class CheckpointConfig:
+    init_from: str | None = None
     resume_from: str | None = None
 
 

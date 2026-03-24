@@ -81,3 +81,98 @@ def load_training_checkpoint(
     if (checkpoint_dir / "rng_state.pt").exists():
         set_rng_state(torch.load(checkpoint_dir / "rng_state.pt", map_location="cpu"))
     return trainer_state
+
+
+def load_initial_model_checkpoint(
+    checkpoint_dir: str | Path,
+    model: torch.nn.Module,
+    strict: bool = True,
+) -> dict[str, Any]:
+    checkpoint_dir = Path(checkpoint_dir)
+    state_dict = torch.load(checkpoint_dir / "model" / "state_dict.pt", map_location="cpu")
+    meta = load_checkpoint_meta(checkpoint_dir)
+    checkpoint_mode = (
+        meta.get("config", {})
+        .get("finetune", {})
+        .get("mode")
+    )
+
+    target_model = unwrap_model(model)
+    base_model_getter = getattr(target_model, "get_base_model", None)
+    candidate_models: list[torch.nn.Module] = []
+
+    if checkpoint_mode == "lora" and not callable(base_model_getter):
+        raise ValueError(
+            "Cannot initialize a non-LoRA model from a LoRA checkpoint with `init-from`. "
+            "Use a matching LoRA config with `init-from`, or use `resume-from` on the original training setup."
+        )
+
+    if checkpoint_mode == "full" and callable(base_model_getter):
+        # Common stage-2 case: initialize a fresh LoRA-wrapped model from a full-FT
+        # checkpoint by loading weights into the underlying base model only.
+        candidate_models.append(base_model_getter())
+    else:
+        candidate_models.append(target_model)
+        if callable(base_model_getter):
+            base_model = base_model_getter()
+            if base_model is not target_model:
+                candidate_models.append(base_model)
+
+    load_error: RuntimeError | None = None
+    for candidate_model in candidate_models:
+        try:
+            candidate_state_dict = candidate_model.state_dict()
+            remapped_state_dict = _maybe_remap_full_checkpoint_for_lora_base(
+                source_state_dict=state_dict,
+                target_state_dict=candidate_state_dict,
+                checkpoint_mode=checkpoint_mode,
+            )
+            if remapped_state_dict is not None:
+                merged_state_dict = dict(candidate_state_dict)
+                merged_state_dict.update(remapped_state_dict)
+                candidate_model.load_state_dict(merged_state_dict, strict=True)
+            else:
+                candidate_model.load_state_dict(state_dict, strict=strict)
+            load_error = None
+            break
+        except RuntimeError as exc:
+            load_error = exc
+
+    if load_error is not None:
+        raise RuntimeError(
+            f"Failed to initialize model weights from checkpoint {checkpoint_dir}."
+        ) from load_error
+    return meta
+
+
+def _maybe_remap_full_checkpoint_for_lora_base(
+    source_state_dict: dict[str, torch.Tensor],
+    target_state_dict: dict[str, torch.Tensor],
+    checkpoint_mode: str | None,
+) -> dict[str, torch.Tensor] | None:
+    if checkpoint_mode != "full":
+        return None
+    if not any(".base_layer." in key for key in target_state_dict):
+        return None
+
+    remapped_state_dict: dict[str, torch.Tensor] = {}
+    for source_key, value in source_state_dict.items():
+        if source_key in target_state_dict:
+            remapped_state_dict[source_key] = value
+            continue
+
+        base_layer_key = source_key.replace(".weight", ".base_layer.weight")
+        base_layer_key = base_layer_key.replace(".bias", ".base_layer.bias")
+        if base_layer_key in target_state_dict:
+            remapped_state_dict[base_layer_key] = value
+
+    return remapped_state_dict
+
+
+def load_checkpoint_meta(checkpoint_dir: str | Path) -> dict[str, Any]:
+    checkpoint_dir = Path(checkpoint_dir)
+    meta_path = checkpoint_dir / "meta.json"
+    if not meta_path.exists():
+        return {}
+    with meta_path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)

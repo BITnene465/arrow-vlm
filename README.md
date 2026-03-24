@@ -179,6 +179,19 @@ Full FT:
 torchrun --nproc_per_node=2 scripts/train.py --config configs/train_full_ft.yaml
 ```
 
+### Stage-2 SFT From An Earlier Checkpoint
+
+Use `--init-from` when you want to start a fresh training stage from earlier
+weights without restoring optimizer, scheduler, RNG, or global step:
+
+```bash
+python scripts/train.py \
+  --config configs/train_full_ft.yaml \
+  --init-from outputs/qwen3_vl_json_sync_posttrain_ft/checkpoints/best
+```
+
+Use `--resume-from` only when you want to continue the same interrupted run.
+
 ## Prompting Style
 
 This branch keeps the `system_prompt` interface, but the default configuration follows the official `Qwen3-VL` style:

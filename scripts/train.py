@@ -22,6 +22,7 @@ from vlm_det.utils.logging import ExperimentLogger, format_count
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train Qwen3-VL on arrow grounding and keypoint prediction.")
     parser.add_argument("--config", required=True)
+    parser.add_argument("--init-from", default=None)
     parser.add_argument("--resume-from", default=None)
     return parser.parse_args()
 
@@ -158,7 +159,16 @@ def main() -> None:
         evaluator=evaluator,
         logger=logger,
     )
+    init_path = args.init_from or config.checkpoint.init_from
     resume_path = args.resume_from or config.checkpoint.resume_from
+    if init_path and resume_path:
+        raise ValueError("`init-from` and `resume-from` are mutually exclusive. Choose only one.")
+    if init_path:
+        print(f"[startup] initializing model weights from checkpoint: {init_path}", flush=True)
+        init_meta = trainer.initialize_model_from_checkpoint(init_path, strict=True)
+        init_mode = init_meta.get("config", {}).get("finetune", {}).get("mode")
+        if init_mode:
+            print(f"[startup] loaded initialization weights from finetune.mode={init_mode}", flush=True)
     if resume_path:
         print(f"[startup] resuming from checkpoint: {resume_path}", flush=True)
         trainer.load_checkpoint(resume_path, strict=True, resume_training_state=True)
