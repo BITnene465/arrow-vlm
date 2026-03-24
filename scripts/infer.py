@@ -23,13 +23,13 @@ def _save_outputs(
     output_dir: Path,
     image_path: Path,
     raw_text: str,
-    prediction: dict[str, object],
+    parse_report: dict[str, object],
 ) -> tuple[Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     stem = image_path.stem
     prediction_path = output_dir / f"{stem}.prediction.json"
     raw_text_path = output_dir / f"{stem}.raw.txt"
-    prediction_path.write_text(json.dumps(prediction, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    prediction_path.write_text(json.dumps(parse_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     raw_text_path.write_text(raw_text + "\n", encoding="utf-8")
     return prediction_path, raw_text_path
 
@@ -41,11 +41,25 @@ def main() -> None:
     runner = load_inference_runner(args.config, args.checkpoint)
     image_path = Path(args.image)
     image = Image.open(image_path).convert("RGB")
-    raw_text, prediction = runner.predict(image)
-    print(json.dumps(prediction, ensure_ascii=False, indent=2))
-    print(format_prediction_summary(prediction))
+    raw_text, parse_report = runner.predict(image)
+    print(json.dumps(parse_report, ensure_ascii=False, indent=2))
+
+    lenient_prediction = parse_report["lenient"]["prediction"]
+    if lenient_prediction is not None:
+        print(format_prediction_summary(lenient_prediction))
+    else:
+        print("Detected arrows: parse failed")
+
+    print(
+        "\n".join(
+            [
+                f"Lenient parse ok: {parse_report['lenient']['ok']}",
+                f"Strict parse ok: {parse_report['strict']['ok']}",
+            ]
+        )
+    )
     if args.output_dir is not None:
-        prediction_path, raw_text_path = _save_outputs(Path(args.output_dir), image_path, raw_text, prediction)
+        prediction_path, raw_text_path = _save_outputs(Path(args.output_dir), image_path, raw_text, parse_report)
         print(f"Saved parsed prediction to: {prediction_path}")
         print(f"Saved raw output to: {raw_text_path}")
 

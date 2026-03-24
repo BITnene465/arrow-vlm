@@ -12,7 +12,7 @@ from vlm_det.modeling.builder import BuildArtifacts, build_model_tokenizer_proce
 from vlm_det.protocol.codec import ArrowCodec
 from vlm_det.utils.checkpoint import load_training_checkpoint
 from vlm_det.utils.distributed import unwrap_model
-from vlm_det.utils.generation import build_generate_kwargs
+from vlm_det.utils.generation import build_generate_kwargs, trim_generated_ids_at_eos
 
 
 @dataclass
@@ -29,23 +29,59 @@ class ArrowInferenceRunner:
         input_context_length = int(model_inputs["input_ids"].shape[1])
         raw_model = unwrap_model(self.artifacts.model)
         raw_model.eval()
+        generate_kwargs = build_generate_kwargs(
+            self.artifacts.tokenizer,
+            generation_config=getattr(raw_model, "generation_config", None),
+            num_bins=self.codec.num_bins,
+            prompt_lengths=[prompt_length],
+            max_new_tokens=self.config.eval.max_new_tokens,
+            num_beams=self.config.eval.num_beams,
+            do_sample=self.config.eval.do_sample,
+            use_cache=self.config.eval.use_cache,
+        )
         with torch.inference_mode():
             output_ids = raw_model.generate(
                 **model_inputs,
-                **build_generate_kwargs(
-                    self.artifacts.tokenizer,
-                    num_bins=self.codec.num_bins,
-                    prompt_lengths=[prompt_length],
-                    max_new_tokens=self.config.eval.max_new_tokens,
-                    num_beams=self.config.eval.num_beams,
-                    do_sample=self.config.eval.do_sample,
-                    use_cache=self.config.eval.use_cache,
-                ),
+                **generate_kwargs,
             )
         continuation = output_ids[0, input_context_length:]
-        decoded = self.artifacts.tokenizer.decode(continuation, skip_special_tokens=False)
-        prediction = self.codec.decode(decoded, image_width=width, image_height=height)
-        return decoded, prediction
+        trimmed_ids = trim_generated_ids_at_eos(continuation, generate_kwargs.get("eos_token_id"))
+        decoded = self.artifacts.tokenizer.decode(trimmed_ids, skip_special_tokens=False)
+        strict_text = self.artifacts.tokenizer.decode(trimmed_ids, skip_special_tokens=True)
+
+        lenient_prediction: dict[str, Any] | None = None
+        lenient_error: str | None = None
+        strict_error: str | None = None
+        try:
+            lenient_prediction = self.codec.decode(decoded, image_width=width, image_height=height)
+        except Exception as exc:  # noqa: BLE001
+            lenient_error = str(exc)
+
+        if lenient_prediction is not None:
+            try:
+                self.codec.decode(
+                    strict_text,
+                    image_width=width,
+                    image_height=height,
+                    strict=True,
+                )
+            except Exception as exc:  # noqa: BLE001
+                strict_error = str(exc)
+        else:
+            strict_error = lenient_error
+
+        return decoded, {
+            "lenient": {
+                "ok": lenient_error is None,
+                "prediction": lenient_prediction,
+                "error": lenient_error,
+            },
+            "strict": {
+                "ok": strict_error is None,
+                "prediction": lenient_prediction if strict_error is None else None,
+                "error": strict_error,
+            },
+        }
 
     def _prepare_inputs(self, image: Image.Image) -> tuple[dict[str, torch.Tensor], int]:
         prompt = self._build_prompt()

@@ -7,7 +7,7 @@ import torch
 
 from vlm_det.protocol.codec import ArrowCodec
 from vlm_det.utils.distributed import reduce_numeric_dict, unwrap_model
-from vlm_det.utils.generation import build_generate_kwargs
+from vlm_det.utils.generation import build_generate_kwargs, trim_generated_ids_at_eos
 from vlm_det.utils.logging import create_progress_bar
 
 
@@ -53,12 +53,14 @@ class ArrowEvaluator:
                     previews.extend(batch_previews[:remaining])
                 if progress is not None:
                     samples = max(counts["samples"], 1.0)
-                    parse_rate = counts["parse_success"] / samples
+                    parse_rate_lenient = counts["parse_success_lenient"] / samples
+                    parse_rate_strict = counts["parse_success_strict"] / samples
                     precision = counts["bbox_tp"] / max(counts["bbox_tp"] + counts["bbox_fp"], 1.0)
                     recall = counts["bbox_tp"] / max(counts["bbox_tp"] + counts["bbox_fn"], 1.0)
                     progress.set_postfix(
                         {
-                            "parse": f"{parse_rate:.2f}",
+                            "parseL": f"{parse_rate_lenient:.2f}",
+                            "parseS": f"{parse_rate_strict:.2f}",
                             "p": f"{precision:.2f}",
                             "r": f"{recall:.2f}",
                         }
@@ -79,6 +81,7 @@ class ArrowEvaluator:
         generate_inputs.update(
             build_generate_kwargs(
                 self.tokenizer,
+                generation_config=getattr(model, "generation_config", None),
                 num_bins=self.codec.num_bins,
                 prompt_lengths=batch["prompt_lengths"].tolist(),
                 max_new_tokens=self.max_new_tokens,
@@ -93,21 +96,38 @@ class ArrowEvaluator:
         counts = self._empty_counts()
         previews: list[dict[str, Any]] = []
         input_context_length = int(batch["input_ids"].shape[1])
+        eos_token_id = generate_inputs.get("eos_token_id")
 
         for row_index, _prompt_length in enumerate(batch["prompt_lengths"].tolist()):
             counts["samples"] += 1.0
             generated_ids = generated[row_index, input_context_length:]
-            decoded_text = self.tokenizer.decode(generated_ids, skip_special_tokens=False)
+            trimmed_ids = trim_generated_ids_at_eos(generated_ids, eos_token_id)
+            decoded_text = self.tokenizer.decode(trimmed_ids, skip_special_tokens=False)
+            strict_text = self.tokenizer.decode(trimmed_ids, skip_special_tokens=True)
             image_width = int(batch["meta"]["image_width"][row_index])
             image_height = int(batch["meta"]["image_height"][row_index])
             gt_struct = batch["meta"]["gt_struct"][row_index]
-            parse_error = None
+            parse_error_lenient = None
+            parse_error_strict = None
             try:
                 pred_struct = self.codec.decode(decoded_text, image_width=image_width, image_height=image_height)
-                counts["parse_success"] += 1.0
+                counts["parse_success_lenient"] += 1.0
             except Exception as exc:  # noqa: BLE001
                 pred_struct = {"instances": []}
-                parse_error = str(exc)
+                parse_error_lenient = str(exc)
+            if parse_error_lenient is None:
+                try:
+                    self.codec.decode(
+                        strict_text,
+                        image_width=image_width,
+                        image_height=image_height,
+                        strict=True,
+                    )
+                    counts["parse_success_strict"] += 1.0
+                except Exception as exc:  # noqa: BLE001
+                    parse_error_strict = str(exc)
+            else:
+                parse_error_strict = parse_error_lenient
             local_counts = self._score_prediction(gt_struct, pred_struct)
             for key, value in local_counts.items():
                 counts[key] += value
@@ -115,8 +135,10 @@ class ArrowEvaluator:
                 previews.append(
                     {
                         "sample_id": batch["meta"]["sample_id"][row_index],
-                        "parse_ok": parse_error is None,
-                        "parse_error": parse_error,
+                        "parse_ok_lenient": parse_error_lenient is None,
+                        "parse_ok_strict": parse_error_strict is None,
+                        "parse_error_lenient": parse_error_lenient,
+                        "parse_error_strict": parse_error_strict,
                         "gt_instances": len(gt_struct.get("instances", [])),
                         "pred_instances": len(pred_struct.get("instances", [])),
                         "target_text": self._truncate_preview(batch["meta"]["target_text"][row_index]),
@@ -137,7 +159,8 @@ class ArrowEvaluator:
         recall = tp / max(tp + fn, 1.0)
         f1 = 2 * precision * recall / max(precision + recall, 1e-8)
         return {
-            "val/parse_rate": counts["parse_success"] / samples,
+            "val/parse_rate_lenient": counts["parse_success_lenient"] / samples,
+            "val/parse_rate_strict": counts["parse_success_strict"] / samples,
             "val/bbox_precision_at_iou50": precision,
             "val/bbox_f1_at_iou50": f1,
             "val/bbox_recall_at_iou50": recall,
@@ -150,7 +173,8 @@ class ArrowEvaluator:
     def _empty_counts(self) -> dict[str, float]:
         return {
             "samples": 0.0,
-            "parse_success": 0.0,
+            "parse_success_lenient": 0.0,
+            "parse_success_strict": 0.0,
             "gt_instances": 0.0,
             "pred_instances": 0.0,
             "bbox_tp": 0.0,
@@ -168,12 +192,15 @@ class ArrowEvaluator:
         for preview in self.last_previews:
             header = (
                 f"[eval-preview] sample={preview['sample_id']} "
-                f"parse_ok={preview['parse_ok']} "
+                f"parse_ok_lenient={preview['parse_ok_lenient']} "
+                f"parse_ok_strict={preview['parse_ok_strict']} "
                 f"gt={preview['gt_instances']} pred={preview['pred_instances']}"
             )
             lines.append(header)
-            if preview["parse_error"]:
-                lines.append(f"[eval-preview] parse_error={preview['parse_error']}")
+            if preview["parse_error_lenient"]:
+                lines.append(f"[eval-preview] parse_error_lenient={preview['parse_error_lenient']}")
+            if preview["parse_error_strict"]:
+                lines.append(f"[eval-preview] parse_error_strict={preview['parse_error_strict']}")
             lines.append(f"[eval-preview] target={preview['target_text']}")
             lines.append(f"[eval-preview] output={preview['decoded_text']}")
         return lines
@@ -230,23 +257,82 @@ class ArrowEvaluator:
         gt_instances: list[dict[str, Any]],
         pred_instances: list[dict[str, Any]],
     ) -> list[tuple[int, int, float]]:
-        candidates: list[tuple[int, int, float]] = []
+        adjacency: list[list[int]] = [[] for _ in gt_instances]
+        iou_by_pair: dict[tuple[int, int], float] = {}
         for gt_index, gt_instance in enumerate(gt_instances):
+            row: list[tuple[int, float]] = []
             for pred_index, pred_instance in enumerate(pred_instances):
                 iou_value = self._bbox_iou(gt_instance["bbox"], pred_instance["bbox"])
                 if iou_value >= self.bbox_iou_threshold:
-                    candidates.append((gt_index, pred_index, iou_value))
-        candidates.sort(key=lambda item: item[2], reverse=True)
-        matches: list[tuple[int, int, float]] = []
-        used_gt: set[int] = set()
-        used_pred: set[int] = set()
-        for gt_index, pred_index, iou_value in candidates:
-            if gt_index in used_gt or pred_index in used_pred:
-                continue
-            used_gt.add(gt_index)
-            used_pred.add(pred_index)
-            matches.append((gt_index, pred_index, iou_value))
-        return matches
+                    row.append((pred_index, iou_value))
+                    iou_by_pair[(gt_index, pred_index)] = iou_value
+            row.sort(key=lambda item: (-item[1], item[0]))
+            adjacency[gt_index] = [pred_index for pred_index, _iou_value in row]
+
+        matches = self._maximum_bipartite_matching(adjacency, len(pred_instances))
+        return [
+            (gt_index, pred_index, iou_by_pair[(gt_index, pred_index)])
+            for gt_index, pred_index in matches
+        ]
+
+    @staticmethod
+    def _maximum_bipartite_matching(
+        adjacency: list[list[int]],
+        num_right_nodes: int,
+    ) -> list[tuple[int, int]]:
+        num_left_nodes = len(adjacency)
+        if num_left_nodes == 0 or num_right_nodes == 0:
+            return []
+
+        pair_left = [-1] * num_left_nodes
+        pair_right = [-1] * num_right_nodes
+        dist = [0] * num_left_nodes
+
+        def bfs() -> bool:
+            queue: list[int] = []
+            found_augmenting = False
+            for left_index in range(num_left_nodes):
+                if pair_left[left_index] == -1:
+                    dist[left_index] = 0
+                    queue.append(left_index)
+                else:
+                    dist[left_index] = -1
+
+            queue_index = 0
+            while queue_index < len(queue):
+                left_index = queue[queue_index]
+                queue_index += 1
+                for right_index in adjacency[left_index]:
+                    matched_left = pair_right[right_index]
+                    if matched_left == -1:
+                        found_augmenting = True
+                    elif dist[matched_left] == -1:
+                        dist[matched_left] = dist[left_index] + 1
+                        queue.append(matched_left)
+            return found_augmenting
+
+        def dfs(left_index: int) -> bool:
+            for right_index in adjacency[left_index]:
+                matched_left = pair_right[right_index]
+                if matched_left == -1 or (
+                    dist[matched_left] == dist[left_index] + 1 and dfs(matched_left)
+                ):
+                    pair_left[left_index] = right_index
+                    pair_right[right_index] = left_index
+                    return True
+            dist[left_index] = -1
+            return False
+
+        while bfs():
+            for left_index in range(num_left_nodes):
+                if pair_left[left_index] == -1:
+                    dfs(left_index)
+
+        return [
+            (left_index, right_index)
+            for left_index, right_index in enumerate(pair_left)
+            if right_index != -1
+        ]
 
     @staticmethod
     def _bbox_iou(box_a: list[float], box_b: list[float]) -> float:

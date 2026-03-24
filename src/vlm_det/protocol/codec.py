@@ -22,7 +22,7 @@ class ArrowCodec:
 
     def encode(self, gt_struct: dict[str, Any] | ArrowAnnotation, image_width: int, image_height: int) -> str:
         annotation = gt_struct if isinstance(gt_struct, ArrowAnnotation) else annotation_from_dict(gt_struct)
-        report = self.validate_struct(annotation)
+        report = self.validate_struct(annotation, strict=True)
         if not report.valid:
             raise ValueError(f"Invalid annotation for encoding: {report.errors}")
 
@@ -50,9 +50,18 @@ class ArrowCodec:
             )
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
-    def decode(self, text: str, image_width: int, image_height: int) -> dict[str, Any]:
-        payload = self._parse_json_payload(text)
+    def decode(
+        self,
+        text: str,
+        image_width: int,
+        image_height: int,
+        *,
+        strict: bool = False,
+    ) -> dict[str, Any]:
+        payload = self._parse_json_payload(text, strict=strict)
         if isinstance(payload, dict):
+            if strict:
+                raise ValueError("Strict decoded payload must be a JSON array.")
             payload = [payload]
         if not isinstance(payload, list):
             raise ValueError("Decoded payload must be a JSON array or object.")
@@ -61,6 +70,8 @@ class ArrowCodec:
         for item_index, item in enumerate(payload):
             if not isinstance(item, dict):
                 raise ValueError(f"Item at index {item_index} must be a JSON object.")
+            if strict and "label" not in item:
+                raise ValueError(f"Item at index {item_index} must explicitly contain label='arrow'.")
             label = item.get("label", "arrow")
             if label != "arrow":
                 raise ValueError(f"Item at index {item_index} must have label='arrow'.")
@@ -68,10 +79,10 @@ class ArrowCodec:
             if not isinstance(bbox_values, list) or len(bbox_values) != 4:
                 raise ValueError(f"Item at index {item_index} must contain bbox_2d with 4 values.")
             bbox = [
-                self._dequantize(self._parse_coord(bbox_values[0], "x"), image_width),
-                self._dequantize(self._parse_coord(bbox_values[1], "y"), image_height),
-                self._dequantize(self._parse_coord(bbox_values[2], "x"), image_width),
-                self._dequantize(self._parse_coord(bbox_values[3], "y"), image_height),
+                self._dequantize(self._parse_coord(bbox_values[0], "x", strict=strict), image_width),
+                self._dequantize(self._parse_coord(bbox_values[1], "y", strict=strict), image_height),
+                self._dequantize(self._parse_coord(bbox_values[2], "x", strict=strict), image_width),
+                self._dequantize(self._parse_coord(bbox_values[3], "y", strict=strict), image_height),
             ]
 
             raw_points = item.get("keypoints_2d")
@@ -79,7 +90,12 @@ class ArrowCodec:
                 raise ValueError(f"Item at index {item_index} must contain keypoints_2d as a list.")
             keypoints: list[ArrowPoint] = []
             for point_index, raw_point in enumerate(raw_points):
-                x_value, y_value = self._parse_point(raw_point, item_index, point_index)
+                x_value, y_value = self._parse_point(
+                    raw_point,
+                    item_index,
+                    point_index,
+                    strict=strict,
+                )
                 keypoints.append(
                     ArrowPoint(
                         x=self._dequantize(x_value, image_width),
@@ -88,24 +104,40 @@ class ArrowCodec:
                 )
             annotation.instances.append(ArrowInstance(bbox=bbox, keypoints=keypoints))
 
-        report = self.validate_struct(annotation)
+        report = self.validate_struct(annotation, strict=strict)
         if not report.valid:
             raise ValueError("; ".join(report.errors))
         return annotation_to_dict(annotation)
 
-    def validate_struct(self, gt_struct: dict[str, Any] | ArrowAnnotation) -> ValidationReport:
+    def validate_struct(
+        self,
+        gt_struct: dict[str, Any] | ArrowAnnotation,
+        *,
+        strict: bool = False,
+    ) -> ValidationReport:
         annotation = gt_struct if isinstance(gt_struct, ArrowAnnotation) else annotation_from_dict(gt_struct)
         errors: list[str] = []
         for index, instance in enumerate(annotation.instances):
             if len(instance.bbox) != 4:
                 errors.append(f"instance[{index}] bbox length must be 4")
+            elif strict:
+                x1, y1, x2, y2 = instance.bbox
+                if x1 >= x2 or y1 >= y2:
+                    errors.append(f"instance[{index}] bbox must satisfy x1 < x2 and y1 < y2")
             if len(instance.keypoints) < 2:
                 errors.append(f"instance[{index}] must contain at least 2 keypoints")
         return ValidationReport(valid=not errors, errors=errors)
 
-    def validate_text(self, text: str, image_width: int, image_height: int) -> ValidationReport:
+    def validate_text(
+        self,
+        text: str,
+        image_width: int,
+        image_height: int,
+        *,
+        strict: bool = False,
+    ) -> ValidationReport:
         try:
-            self.decode(text, image_width=image_width, image_height=image_height)
+            self.decode(text, image_width=image_width, image_height=image_height, strict=strict)
         except Exception as exc:  # noqa: BLE001
             return ValidationReport(valid=False, errors=[str(exc)])
         return ValidationReport(valid=True, errors=[])
@@ -123,17 +155,31 @@ class ArrowCodec:
             return 0.0
         return float(value) / float(self.num_bins - 1) * float(size - 1)
 
-    def _parse_coord(self, value: Any, axis: str) -> int:
-        try:
-            parsed = int(round(float(value)))
-        except Exception as exc:  # noqa: BLE001
-            raise ValueError(f"Expected numeric {axis} coordinate, got {value!r}.") from exc
+    def _parse_coord(self, value: Any, axis: str, *, strict: bool = False) -> int:
+        if strict:
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ValueError(f"Expected integer {axis} coordinate, got {value!r}.")
+            parsed = int(value)
+        else:
+            try:
+                parsed = int(round(float(value)))
+            except Exception as exc:  # noqa: BLE001
+                raise ValueError(f"Expected numeric {axis} coordinate, got {value!r}.") from exc
         if parsed < 0 or parsed >= self.num_bins:
             raise ValueError(f"{axis} coordinate {parsed} out of range [0, {self.num_bins - 1}].")
         return parsed
 
-    def _parse_point(self, raw_point: Any, item_index: int, point_index: int) -> tuple[int, int]:
-        if isinstance(raw_point, dict):
+    def _parse_point(
+        self,
+        raw_point: Any,
+        item_index: int,
+        point_index: int,
+        *,
+        strict: bool = False,
+    ) -> tuple[int, int]:
+        if strict:
+            point_values = raw_point
+        elif isinstance(raw_point, dict):
             point_values = raw_point.get("point_2d") or raw_point.get("point") or raw_point.get("xy")
         else:
             point_values = raw_point
@@ -143,14 +189,21 @@ class ArrowCodec:
                 f"Item {item_index} point {point_index} must be [x, y]."
             )
 
-        x_value = self._parse_coord(point_values[0], "x")
-        y_value = self._parse_coord(point_values[1], "y")
+        x_value = self._parse_coord(point_values[0], "x", strict=strict)
+        y_value = self._parse_coord(point_values[1], "y", strict=strict)
         return x_value, y_value
 
-    def _parse_json_payload(self, text: str) -> Any:
+    def _parse_json_payload(self, text: str, *, strict: bool = False) -> Any:
         stripped = text.strip()
         if not stripped:
             raise ValueError("Decoded text is empty.")
+        if strict:
+            try:
+                return json.loads(stripped)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"Strict JSON payload must occupy the entire decoded text: {exc.msg}."
+                ) from exc
         fenced = JSON_FENCE_PATTERN.search(stripped)
         if fenced is not None:
             stripped = fenced.group(1).strip()

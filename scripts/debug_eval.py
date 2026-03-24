@@ -15,7 +15,7 @@ from vlm_det.modeling.builder import build_model_tokenizer_processor
 from vlm_det.protocol.codec import ArrowCodec
 from vlm_det.utils.checkpoint import load_training_checkpoint
 from vlm_det.utils.distributed import unwrap_model
-from vlm_det.utils.generation import build_generate_kwargs
+from vlm_det.utils.generation import build_generate_kwargs, trim_generated_ids_at_eos
 
 
 def parse_args() -> argparse.Namespace:
@@ -105,6 +105,7 @@ def main() -> None:
             model_inputs["image_grid_thw"] = batch["image_grid_thw"].to(device)
         generate_kwargs = build_generate_kwargs(
             artifacts.tokenizer,
+            generation_config=getattr(model, "generation_config", None),
             num_bins=codec.num_bins,
             prompt_lengths=[prompt_length],
             max_new_tokens=config.eval.max_new_tokens,
@@ -119,21 +120,39 @@ def main() -> None:
         elapsed = time.perf_counter() - start_time
 
         continuation = output_ids[0, input_context_length:]
-        continuation_ids = continuation.tolist()
+        continuation_ids = trim_generated_ids_at_eos(continuation, generate_kwargs.get("eos_token_id"))
         generated_tokens = len(continuation_ids)
-        text = artifacts.tokenizer.decode(continuation, skip_special_tokens=False)
+        text = artifacts.tokenizer.decode(continuation_ids, skip_special_tokens=False)
+        strict_text = artifacts.tokenizer.decode(continuation_ids, skip_special_tokens=True)
         try:
             prediction = codec.decode(
                 text,
                 image_width=sample["image_width"],
                 image_height=sample["image_height"],
             )
-            parse_ok = True
+            parse_ok_lenient = True
             predicted_instances = len(prediction.get("instances", []))
         except Exception as exc:  # noqa: BLE001
-            parse_ok = False
+            parse_ok_lenient = False
             predicted_instances = 0
-            prediction = {"error": str(exc)}
+            prediction = {"lenient_error": str(exc)}
+
+        strict_error = None
+        if parse_ok_lenient:
+            try:
+                codec.decode(
+                    strict_text,
+                    image_width=sample["image_width"],
+                    image_height=sample["image_height"],
+                    strict=True,
+                )
+                parse_ok_strict = True
+            except Exception as exc:  # noqa: BLE001
+                parse_ok_strict = False
+                strict_error = str(exc)
+        else:
+            parse_ok_strict = False
+            strict_error = prediction["lenient_error"]
 
         summary = {
             "index": index,
@@ -142,7 +161,8 @@ def main() -> None:
             "prompt_tokens": prompt_length,
             "generated_tokens": generated_tokens,
             "truncated": generated_tokens >= config.eval.max_new_tokens,
-            "parse_ok": parse_ok,
+            "parse_ok_lenient": parse_ok_lenient,
+            "parse_ok_strict": parse_ok_strict,
             "pred_instances": predicted_instances,
             "gt_instances": len(sample["gt_struct"]["instances"]),
             "elapsed_sec": round(elapsed, 3),
@@ -151,8 +171,18 @@ def main() -> None:
         print(json.dumps(summary, ensure_ascii=False), flush=True)
         if args.show_text:
             print(text, flush=True)
-        if not parse_ok:
-            print(json.dumps(prediction, ensure_ascii=False, indent=2), flush=True)
+        if not parse_ok_lenient or strict_error is not None:
+            print(
+                json.dumps(
+                    {
+                        **prediction,
+                        **({"strict_error": strict_error} if strict_error is not None else {}),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                flush=True,
+            )
 
 
 if __name__ == "__main__":
