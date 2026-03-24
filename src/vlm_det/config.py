@@ -38,7 +38,7 @@ class ModelConfig:
 
 @dataclass
 class TokenizerConfig:
-    num_bins: int = 1024
+    num_bins: int = 1000
     add_eos_token: bool = True
 
 

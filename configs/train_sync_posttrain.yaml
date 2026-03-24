@@ -1,10 +1,9 @@
 experiment:
-  name: qwen3_vl_arrow_sft_full_ft
-  output_dir: outputs/qwen3_vl_arrow_sft_full_ft
+  name: qwen3_vl_arrow_sync_posttrain_full_ft
+  output_dir: outputs/qwen3_vl_arrow_sync_posttrain_full_ft
   seed: 42
 
 model:
-  # 默认优先使用本地 models 目录中的模型；若本地不存在，再回退到远端仓库 ID。
   model_name_or_path: models/Qwen3-VL-2B-Instruct
   remote_model_name_or_path: Qwen/Qwen3-VL-2B-Instruct
   trust_remote_code: true
@@ -16,8 +15,6 @@ model:
     - merger
     - projector
     - multi_modal_projector
-  # 受控动态分辨率，而不是原生大图直接输入。
-  # full FT 对显存更敏感，默认也收紧到 1024 x 1024 上限。
   min_pixels: 200704
   # 1024 x 1024 total pixel budget: 1,048,576
   max_pixels: 1048576
@@ -33,24 +30,23 @@ prompt:
     Output all arrows in the predefined format.
 
 data:
-  train_path: data/processed/normalized/train.jsonl
-  val_path: data/processed/normalized/val.jsonl
+  train_path: data/sync/train.jsonl
+  val_path: data/sync/val.jsonl
   shuffle_instances_for_training: true
-  num_workers: 4
+  num_workers: 6
   pin_memory: true
   persistent_workers: true
 
 finetune:
-  # full finetune（若 freeze_vision_tower=true，则视觉塔仍冻结）
   mode: full
 
 train:
-  epochs: 3
+  epochs: 1
   per_device_batch_size: 1
   grad_accum_steps: 8
-  learning_rate: 0.00002
-  embed_learning_rate: 0.00002
-  lm_head_learning_rate: 0.00002
+  learning_rate: 0.00001
+  embed_learning_rate: 0.00001
+  lm_head_learning_rate: 0.00001
   weight_decay: 0.01
   warmup_ratio: 0.03
   scheduler_type: cosine
@@ -59,15 +55,13 @@ train:
   eval_strategy: epoch
   eval_start_epoch: 1
   log_every_steps: 10
-  eval_every_steps: 200
-  save_every_steps: 200
+  eval_every_steps: 1000
+  save_every_steps: 1000
   save_step_checkpoints: false
   keep_last_n_checkpoints: 3
   find_unused_parameters: false
 
 eval:
-  # 训练期评估先收紧到 512，避免模型早期无法闭合协议时把生成打满上限。
-  # 最终离线评估或部署再单独放宽。
   max_new_tokens: 512
   num_beams: 1
   do_sample: false
@@ -80,7 +74,7 @@ eval:
 logging:
   use_wandb: true
   project: vlm_det
-  run_name: null
+  run_name: qwen3_vl_arrow_sync_posttrain_full_ft
   progress_ncols: 88
 
 checkpoint:
