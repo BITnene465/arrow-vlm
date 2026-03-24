@@ -117,7 +117,7 @@ class ArrowEvaluator:
             "val/bbox_precision": precision,
             "val/bbox_recall": recall,
             "val/bbox_f1": f1,
-            "val/bbox_ap50": recall,
+            "val/bbox_recall_at_iou50": recall,
             "val/bbox_iou_mean": counts["bbox_iou_sum"] / matched,
             "val/keypoint_l2_mean": counts["point_distance_sum"] / point_count,
             "val/keypoint_count_acc": counts["keypoint_count_exact"] / matched,
