@@ -114,9 +114,8 @@ class ArrowEvaluator:
         f1 = 2 * precision * recall / max(precision + recall, 1e-8)
         return {
             "val/parse_rate": counts["parse_success"] / samples,
-            "val/bbox_precision": precision,
-            "val/bbox_recall": recall,
-            "val/bbox_f1": f1,
+            "val/bbox_precision_at_iou50": precision,
+            "val/bbox_f1_at_iou50": f1,
             "val/bbox_recall_at_iou50": recall,
             "val/bbox_iou_mean": counts["bbox_iou_sum"] / matched,
             "val/keypoint_l2_mean": counts["point_distance_sum"] / point_count,
