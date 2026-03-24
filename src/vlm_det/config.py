@@ -46,11 +46,7 @@ class TokenizerConfig:
 class PromptConfig:
     system_prompt: str = (
         "<|arrow_task|>\n"
-        "Detect all arrows in the figure and output each arrow using the predefined "
-        "structured format. For each arrow, output one bounding box and an ordered "
-        "keypoint sequence. The first keypoint is the start point, the last keypoint "
-        "is the arrow head, and intermediate keypoints are turning points. Use "
-        "<|visible|> for visible keypoints and <|occluded|> for occluded keypoints."
+        "Output all arrows in the predefined format."
     )
 
 
