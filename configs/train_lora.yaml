@@ -1,6 +1,6 @@
 experiment:
-  name: qwen3_vl_arrow_sft_lora
-  output_dir: outputs/qwen3_vl_arrow_sft_lora
+  name: qwen3_vl_json_lora
+  output_dir: outputs/qwen3_vl_json_lora
   seed: 42
 
 model:
@@ -101,8 +101,8 @@ eval:
 
 logging:
   use_wandb: true
-  project: vlm_det
-  run_name: null
+  project: vlm_det_json
+  run_name: qwen3_vl_json_lora
   progress_ncols: 88
 
 checkpoint:

@@ -1,6 +1,6 @@
 experiment:
-  name: qwen3_vl_sync_posttrain_ft
-  output_dir: outputs/qwen3_vl_sync_posttrain_ft
+  name: qwen3_vl_json_sync_posttrain_ft
+  output_dir: outputs/qwen3_vl_json_sync_posttrain_ft
   seed: 42
 
 model:
@@ -78,8 +78,8 @@ eval:
 
 logging:
   use_wandb: true
-  project: vlm_det
-  run_name: qwen3_vl_sync_posttrain_ft
+  project: vlm_det_json
+  run_name: qwen3_vl_json_sync_posttrain_ft
   progress_ncols: 88
 
 checkpoint:

@@ -11,8 +11,8 @@ from dotenv import load_dotenv
 
 @dataclass
 class ExperimentConfig:
-    name: str = "vlm_det_experiment"
-    output_dir: str = "outputs/default"
+    name: str = "qwen3_vl_json_experiment"
+    output_dir: str = "outputs/qwen3_vl_json_experiment"
     seed: int = 42
 
 
@@ -132,7 +132,7 @@ class EvalConfig:
 @dataclass
 class LoggingConfig:
     use_wandb: bool = True
-    project: str = "vlm_det"
+    project: str = "vlm_det_json"
     run_name: str | None = None
     progress_ncols: int = 88
 
