@@ -35,6 +35,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--stage1-freeze-vision-tower", type=_parse_bool_flag, default=None)
     parser.add_argument("--stage2-freeze-vision-tower", type=_parse_bool_flag, default=None)
+    parser.add_argument("--stage1-gradient-checkpointing", type=_parse_bool_flag, default=None)
+    parser.add_argument("--stage2-gradient-checkpointing", type=_parse_bool_flag, default=None)
     parser.add_argument("--stage1-checkpoint-tag", choices=["best", "last"], default="best")
     parser.add_argument(
         "--stage1-checkpoint-dir",
@@ -92,6 +94,7 @@ def _build_stage_command(
     run_id: str | None = None,
     stage_name: str | None = None,
     freeze_vision_tower: bool | None = None,
+    gradient_checkpointing: bool | None = None,
     init_from: str | None = None,
     resume_from: str | None = None,
 ) -> list[str]:
@@ -102,6 +105,8 @@ def _build_stage_command(
         command.extend(["--stage-name", stage_name])
     if freeze_vision_tower is not None:
         command.extend(["--freeze-vision-tower", "true" if freeze_vision_tower else "false"])
+    if gradient_checkpointing is not None:
+        command.extend(["--gradient-checkpointing", "true" if gradient_checkpointing else "false"])
     if init_from:
         command.extend(["--init-from", init_from])
     if resume_from:
@@ -142,6 +147,7 @@ def main() -> None:
             run_id=args.run_id,
             stage_name=stage1_name if args.run_id else None,
             freeze_vision_tower=args.stage1_freeze_vision_tower,
+            gradient_checkpointing=args.stage1_gradient_checkpointing,
             init_from=args.stage1_init_from,
             resume_from=args.stage1_resume_from,
         )
@@ -160,6 +166,7 @@ def main() -> None:
         run_id=args.run_id,
         stage_name=stage2_name if args.run_id else None,
         freeze_vision_tower=args.stage2_freeze_vision_tower,
+        gradient_checkpointing=args.stage2_gradient_checkpointing,
         init_from=None if args.stage2_resume_from else str(stage1_checkpoint_dir),
         resume_from=args.stage2_resume_from,
     )

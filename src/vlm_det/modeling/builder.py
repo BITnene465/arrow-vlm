@@ -102,6 +102,30 @@ def _sanitize_generation_config(model: torch.nn.Module, config: ExperimentRuntim
         generation_config.top_k = None
 
 
+def _maybe_enable_gradient_checkpointing(model: torch.nn.Module, config: ExperimentRuntimeConfig) -> None:
+    if not config.train.gradient_checkpointing:
+        return
+
+    enable_input_require_grads = getattr(model, "enable_input_require_grads", None)
+    if callable(enable_input_require_grads):
+        enable_input_require_grads()
+
+    gradient_checkpointing_enable = getattr(model, "gradient_checkpointing_enable", None)
+    if not callable(gradient_checkpointing_enable):
+        raise ValueError(
+            "gradient_checkpointing was requested, but the current model does not expose "
+            "`gradient_checkpointing_enable()`."
+        )
+
+    try:
+        gradient_checkpointing_enable(
+            gradient_checkpointing_kwargs={"use_reentrant": False}
+        )
+    except TypeError:
+        gradient_checkpointing_enable()
+    print("[builder] gradient checkpointing enabled.", flush=True)
+
+
 def build_model_tokenizer_processor(config: ExperimentRuntimeConfig) -> BuildArtifacts:
     if config.finetune.mode not in {"lora", "full"}:
         raise ValueError(
@@ -176,6 +200,7 @@ def build_model_tokenizer_processor(config: ExperimentRuntimeConfig) -> BuildArt
         for parameter in output_embeddings.parameters():
             parameter.requires_grad = True
 
+    _maybe_enable_gradient_checkpointing(model, config)
     summary = _trainable_summary(model)
     return BuildArtifacts(
         model=model,

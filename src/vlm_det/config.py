@@ -96,6 +96,7 @@ class TrainConfig:
     epochs: int = 3
     per_device_batch_size: int = 1
     grad_accum_steps: int = 8
+    gradient_checkpointing: bool = True
     learning_rate: float = 1e-4
     embed_learning_rate: float | None = None
     lm_head_learning_rate: float | None = None

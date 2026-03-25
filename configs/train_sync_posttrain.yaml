@@ -47,6 +47,7 @@ train:
   epochs: 2
   per_device_batch_size: 1
   grad_accum_steps: 4
+  gradient_checkpointing: true
   learning_rate: 0.00001
   embed_learning_rate: 0.00001
   lm_head_learning_rate: 0.00001

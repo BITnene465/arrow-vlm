@@ -172,6 +172,15 @@ python scripts/train.py \
   --freeze-vision-tower false
 ```
 
+Gradient checkpointing is enabled by default. Override it explicitly if you want to turn it off:
+
+```bash
+python scripts/train.py \
+  --config configs/train_full_ft.yaml \
+  --run-id 20260325-exp01 \
+  --gradient-checkpointing false
+```
+
 ### Single-GPU Full Fine-Tuning
 
 ```bash
@@ -220,6 +229,7 @@ python scripts/train_two_stage.py \
   --run-id 20260325-exp01 \
   --stage1-freeze-vision-tower false \
   --stage2-freeze-vision-tower true \
+  --stage2-gradient-checkpointing true \
   --stage1-config configs/train_sync_posttrain.yaml \
   --stage2-config configs/train_full_ft.yaml
 ```

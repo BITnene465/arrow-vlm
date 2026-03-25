@@ -34,6 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--stage-name", default=None)
     parser.add_argument("--freeze-vision-tower", type=_parse_bool_flag, default=None)
+    parser.add_argument("--gradient-checkpointing", type=_parse_bool_flag, default=None)
     parser.add_argument("--init-from", default=None)
     parser.add_argument("--resume-from", default=None)
     return parser.parse_args()
@@ -71,6 +72,12 @@ def main() -> None:
         config.model.freeze_vision_tower = args.freeze_vision_tower
         print(
             f"[startup] override freeze_vision_tower={config.model.freeze_vision_tower}",
+            flush=True,
+        )
+    if args.gradient_checkpointing is not None:
+        config.train.gradient_checkpointing = args.gradient_checkpointing
+        print(
+            f"[startup] override gradient_checkpointing={config.train.gradient_checkpointing}",
             flush=True,
         )
     dist_ctx = init_distributed()
