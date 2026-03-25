@@ -23,8 +23,6 @@ class ArrowEvaluator:
         top_p: float | None = None,
         top_k: int | None = None,
         use_cache: bool = True,
-        preview_samples: int = 0,
-        preview_char_limit: int = 600,
         bbox_iou_threshold: float = 0.5,
         strict_point_distance_px: float = 8.0,
     ) -> None:
@@ -37,26 +35,19 @@ class ArrowEvaluator:
         self.top_p = top_p
         self.top_k = top_k
         self.use_cache = use_cache
-        self.preview_samples = max(int(preview_samples), 0)
-        self.preview_char_limit = max(int(preview_char_limit), 120)
         self.bbox_iou_threshold = bbox_iou_threshold
         self.strict_point_distance_px = strict_point_distance_px
-        self.last_previews: list[dict[str, Any]] = []
 
     def evaluate_model(self, model: torch.nn.Module, dataloader) -> dict[str, float]:
         counts = self._empty_counts()
-        previews: list[dict[str, Any]] = []
         raw_model = unwrap_model(model)
         raw_model.eval()
         progress = create_progress_bar(total=len(dataloader), desc="eval", leave=True)
         with torch.no_grad():
             for batch in dataloader:
-                batch_counts, batch_previews = self.evaluate_batch(raw_model, batch)
+                batch_counts = self.evaluate_batch(raw_model, batch)
                 for key, value in batch_counts.items():
                     counts[key] += value
-                if self.preview_samples > 0 and len(previews) < self.preview_samples:
-                    remaining = self.preview_samples - len(previews)
-                    previews.extend(batch_previews[:remaining])
                 if progress is not None:
                     samples = max(counts["samples"], 1.0)
                     parse_rate_lenient = counts["parse_success_lenient"] / samples
@@ -74,11 +65,10 @@ class ArrowEvaluator:
                     progress.update(1)
         if progress is not None:
             progress.close()
-        self.last_previews = previews
         reduced = reduce_numeric_dict(counts, average=False)
         return self.summarize(reduced)
 
-    def evaluate_batch(self, model: torch.nn.Module, batch: dict[str, Any]) -> tuple[dict[str, float], list[dict[str, Any]]]:
+    def evaluate_batch(self, model: torch.nn.Module, batch: dict[str, Any]) -> dict[str, float]:
         generate_inputs = {
             "input_ids": batch["input_ids"].to(next(model.parameters()).device),
             "attention_mask": batch["attention_mask"].to(next(model.parameters()).device),
@@ -106,7 +96,6 @@ class ArrowEvaluator:
         reset_model_runtime_state(model)
         generated = model.generate(**generate_inputs)
         counts = self._empty_counts()
-        previews: list[dict[str, Any]] = []
         input_context_length = int(batch["input_ids"].shape[1])
         eos_token_id = generate_inputs.get("eos_token_id")
 
@@ -143,21 +132,7 @@ class ArrowEvaluator:
             local_counts = self._score_prediction(gt_struct, pred_struct)
             for key, value in local_counts.items():
                 counts[key] += value
-            if self.preview_samples > 0 and len(previews) < self.preview_samples:
-                previews.append(
-                    {
-                        "sample_id": batch["meta"]["sample_id"][row_index],
-                        "parse_ok_lenient": parse_error_lenient is None,
-                        "parse_ok_strict": parse_error_strict is None,
-                        "parse_error_lenient": parse_error_lenient,
-                        "parse_error_strict": parse_error_strict,
-                        "gt_instances": len(gt_struct.get("instances", [])),
-                        "pred_instances": len(pred_struct.get("instances", [])),
-                        "target_text": self._truncate_preview(batch["meta"]["target_text"][row_index]),
-                        "decoded_text": self._truncate_preview(decoded_text),
-                    }
-                )
-        return counts, previews
+        return counts
 
     def summarize(self, counts: dict[str, float]) -> dict[str, float]:
         samples = max(counts["samples"], 1.0)
@@ -198,30 +173,6 @@ class ArrowEvaluator:
             "keypoint_count_exact": 0.0,
             "end_to_end_correct": 0.0,
         }
-
-    def format_previews(self) -> list[str]:
-        lines: list[str] = []
-        for preview in self.last_previews:
-            header = (
-                f"[eval-preview] sample={preview['sample_id']} "
-                f"parse_ok_lenient={preview['parse_ok_lenient']} "
-                f"parse_ok_strict={preview['parse_ok_strict']} "
-                f"gt={preview['gt_instances']} pred={preview['pred_instances']}"
-            )
-            lines.append(header)
-            if preview["parse_error_lenient"]:
-                lines.append(f"[eval-preview] parse_error_lenient={preview['parse_error_lenient']}")
-            if preview["parse_error_strict"]:
-                lines.append(f"[eval-preview] parse_error_strict={preview['parse_error_strict']}")
-            lines.append(f"[eval-preview] target={preview['target_text']}")
-            lines.append(f"[eval-preview] output={preview['decoded_text']}")
-        return lines
-
-    def _truncate_preview(self, text: str) -> str:
-        normalized = text.replace("\n", "\\n")
-        if len(normalized) <= self.preview_char_limit:
-            return normalized
-        return normalized[: self.preview_char_limit - 3] + "..."
 
     def _score_prediction(self, gt_struct: dict[str, Any], pred_struct: dict[str, Any]) -> dict[str, float]:
         counts = self._empty_counts()

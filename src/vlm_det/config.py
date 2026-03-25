@@ -125,8 +125,6 @@ class EvalConfig:
     top_p: float | None = None
     top_k: int | None = None
     use_cache: bool = True
-    preview_samples: int = 3
-    preview_char_limit: int = 600
     bbox_iou_threshold: float = 0.5
     strict_point_distance_px: float = 8.0
     monitor_metric: str = "val/end_to_end_score"

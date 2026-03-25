@@ -172,8 +172,6 @@ def main() -> None:
         top_p=config.eval.top_p,
         top_k=config.eval.top_k,
         use_cache=config.eval.use_cache,
-        preview_samples=config.eval.preview_samples,
-        preview_char_limit=config.eval.preview_char_limit,
         bbox_iou_threshold=config.eval.bbox_iou_threshold,
         strict_point_distance_px=config.eval.strict_point_distance_px,
     )
