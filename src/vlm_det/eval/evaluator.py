@@ -19,6 +19,9 @@ class ArrowEvaluator:
         max_new_tokens: int,
         num_beams: int = 1,
         do_sample: bool = False,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        top_k: int | None = None,
         use_cache: bool = True,
         preview_samples: int = 0,
         preview_char_limit: int = 600,
@@ -30,6 +33,9 @@ class ArrowEvaluator:
         self.max_new_tokens = max_new_tokens
         self.num_beams = num_beams
         self.do_sample = do_sample
+        self.temperature = temperature
+        self.top_p = top_p
+        self.top_k = top_k
         self.use_cache = use_cache
         self.preview_samples = max(int(preview_samples), 0)
         self.preview_char_limit = max(int(preview_char_limit), 120)
@@ -89,6 +95,9 @@ class ArrowEvaluator:
                 max_new_tokens=self.max_new_tokens,
                 num_beams=self.num_beams,
                 do_sample=self.do_sample,
+                temperature=self.temperature,
+                top_p=self.top_p,
+                top_k=self.top_k,
                 use_cache=self.use_cache,
             )
         )

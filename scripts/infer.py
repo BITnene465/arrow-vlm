@@ -16,6 +16,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", default=None, help="Checkpoint directory. Falls back to CHECKPOINT_PATH in .env.")
     parser.add_argument("--env-file", default=None, help="Optional path to a .env file for inference/app settings.")
     parser.add_argument("--image", required=True)
+    parser.add_argument("--max-new-tokens", type=int, default=None, help="Override inference max_new_tokens for this run.")
     parser.add_argument("--output-dir", default=None, help="Optional directory to save parsed prediction files.")
     return parser.parse_args()
 
@@ -46,7 +47,7 @@ def main() -> None:
     )
     image_path = Path(args.image)
     image = Image.open(image_path).convert("RGB")
-    raw_text, parse_report = runner.predict(image)
+    raw_text, parse_report = runner.predict(image, max_new_tokens=args.max_new_tokens)
     print(json.dumps(parse_report, ensure_ascii=False, indent=2))
     print("\n[raw-output]")
     print(raw_text)

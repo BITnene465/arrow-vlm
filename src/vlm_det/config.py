@@ -119,6 +119,9 @@ class EvalConfig:
     max_new_tokens: int = 8192
     num_beams: int = 1
     do_sample: bool = False
+    temperature: float | None = None
+    top_p: float | None = None
+    top_k: int | None = None
     use_cache: bool = True
     preview_samples: int = 3
     preview_char_limit: int = 600

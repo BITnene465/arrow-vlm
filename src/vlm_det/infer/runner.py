@@ -24,7 +24,12 @@ class ArrowInferenceRunner:
     codec: ArrowCodec
     device: torch.device
 
-    def predict(self, image: Image.Image) -> tuple[str, dict[str, Any]]:
+    def predict(
+        self,
+        image: Image.Image,
+        *,
+        max_new_tokens: int | None = None,
+    ) -> tuple[str, dict[str, Any]]:
         pil_image = image.convert("RGB")
         width, height = pil_image.size
         model_inputs, prompt_length = self._prepare_inputs(pil_image)
@@ -36,9 +41,12 @@ class ArrowInferenceRunner:
             generation_config=getattr(raw_model, "generation_config", None),
             num_bins=self.codec.num_bins,
             prompt_lengths=[prompt_length],
-            max_new_tokens=self.config.eval.max_new_tokens,
+            max_new_tokens=max_new_tokens or self.config.eval.max_new_tokens,
             num_beams=self.config.eval.num_beams,
             do_sample=self.config.eval.do_sample,
+            temperature=self.config.eval.temperature,
+            top_p=self.config.eval.top_p,
+            top_k=self.config.eval.top_k,
             use_cache=self.config.eval.use_cache,
         )
         with torch.inference_mode():

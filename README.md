@@ -289,6 +289,7 @@ The inference CLI reads `.env` directly and does not require a training YAML:
 
 ```bash
 python scripts/infer.py \
+  --max-new-tokens 4096 \
   --image /path/to/figure.jpg
 ```
 
@@ -305,6 +306,7 @@ Override the checkpoint or env file explicitly when needed:
 python scripts/infer.py \
   --checkpoint outputs/your_experiment/checkpoints/best \
   --env-file /path/to/.env \
+  --max-new-tokens 4096 \
   --image /path/to/figure.jpg \
   --output-dir outputs/infer_results
 ```
@@ -317,6 +319,12 @@ Launch the Gradio app with the same `.env` settings:
 
 ```bash
 python app/demo.py
+```
+
+or override `max_new_tokens` for the whole app session:
+
+```bash
+python app/demo.py --max-new-tokens 4096
 ```
 
 Useful inference/app env vars:
@@ -336,6 +344,12 @@ Optional overrides only when needed:
 - `SYSTEM_PROMPT`
 - `USER_PROMPT`
 - `INFER_MAX_NEW_TOKENS`
+- `INFER_NUM_BEAMS`
+- `INFER_DO_SAMPLE`
+- `INFER_USE_CACHE`
+- `INFER_TEMPERATURE`
+- `INFER_TOP_P`
+- `INFER_TOP_K`
 
 `infer.py` and `app/demo.py` share the same environment-driven loader. They fall back to `checkpoint/meta.json` for structure-sensitive settings such as `finetune.mode`, LoRA parameters, prompt defaults, and eval defaults, so you normally do not need a training config file during inference.
 

@@ -50,6 +50,9 @@ def build_generate_kwargs(
     max_new_tokens: int,
     num_beams: int,
     do_sample: bool,
+    temperature: float | None,
+    top_p: float | None,
+    top_k: int | None,
     use_cache: bool,
 ) -> dict[str, Any]:
     del num_bins, prompt_lengths
@@ -60,6 +63,13 @@ def build_generate_kwargs(
         "use_cache": use_cache,
         "pad_token_id": tokenizer.pad_token_id,
     }
+    if do_sample:
+        if temperature is not None:
+            generate_kwargs["temperature"] = temperature
+        if top_p is not None:
+            generate_kwargs["top_p"] = top_p
+        if top_k is not None:
+            generate_kwargs["top_k"] = top_k
     eos_token_id = resolve_eos_token_ids(tokenizer, generation_config=generation_config)
     if eos_token_id is not None:
         generate_kwargs["eos_token_id"] = eos_token_id

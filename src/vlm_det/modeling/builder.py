@@ -94,7 +94,11 @@ def _sanitize_generation_config(model: torch.nn.Module, config: ExperimentRuntim
     generation_config.do_sample = config.eval.do_sample
     generation_config.num_beams = config.eval.num_beams
     generation_config.use_cache = config.eval.use_cache
-    if not config.eval.do_sample:
+    if config.eval.do_sample:
+        generation_config.temperature = config.eval.temperature
+        generation_config.top_p = config.eval.top_p
+        generation_config.top_k = config.eval.top_k
+    else:
         # Greedy / beam search does not consume sampling-only knobs. Clearing them
         # avoids repeated transformers warnings like temperature/top_p/top_k ignored.
         generation_config.temperature = None
