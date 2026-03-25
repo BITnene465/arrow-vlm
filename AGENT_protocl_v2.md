@@ -36,6 +36,9 @@
 - 不输出额外自然语言
 - 所有坐标都是 `[0,999]` 的整数
 - `keypoints_2d` 顺序固定为 **tail -> head**
+- `keypoints_2d[0]` = 箭头尾部中心线点
+- `keypoints_2d[-1]` = 箭头头部尖点
+- 中间 keypoints = 路径控制点 / 折点，不是箭头头部两侧角点
 - 每个箭头至少 2 个 keypoints
 
 ## 3. 为什么有这条分支
@@ -81,6 +84,7 @@ python scripts/prepare_data.py \
 - 这里保存的是 **原图像素坐标**
 - 还没有归一化到 `[0,999]`
 - 归一化发生在 `ArrowCodec.encode()`
+- `keypoints` 语义和最终协议一致：第一点是 tail，最后一点是 head tip
 
 ### 4.2 Dataset
 

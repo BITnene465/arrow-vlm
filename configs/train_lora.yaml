@@ -65,8 +65,8 @@ lora:
 
 train:
   epochs: 3
-  per_device_batch_size: 2
-  grad_accum_steps: 4
+  per_device_batch_size: 4
+  grad_accum_steps: 2
   gradient_checkpointing: true
   learning_rate: 0.0001
   embed_learning_rate: 0.0001

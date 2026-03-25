@@ -136,7 +136,7 @@ python synthetic_pipeline/generate_sync_dataset.py \
 - 不同点数的 polyline arrows
 - 多样式曲线箭头，关键点顺序固定为：
   - 第一个点 = 箭头尾部
-  - 最后一个点 = 箭头头部
+  - 最后一个点 = 箭头头部尖点
   - 中间点 = 拐点 / 曲线控制拐点
 - 多种箭头样式：
   - 细线 / 中粗 / 粗线 / marker 风格
@@ -153,6 +153,13 @@ python synthetic_pipeline/generate_sync_dataset.py \
 - 适度遮挡
 
 同时会限制实例之间的大面积重叠，避免分布过度偏向极端拥挤场景。
+
+关键点语义需要特别固定下来，避免后续出现理解错位：
+
+- `keypoints[0]` 一定是箭头尾部中心线点
+- `keypoints[-1]` 一定是箭头头部的尖点
+- 中间 keypoints 只表示路径形状，不表示箭头头部两侧轮廓
+- 训练、评估、可视化都应沿用这套定义
 
 `single_crop` 场景会混入最终数据集，而不是单独导出一套子集。它的特点是：
 

@@ -33,6 +33,9 @@ Rules:
 - all coordinates are normalized integers in `[0, 999]`
 - `bbox_2d` uses `[x1, y1, x2, y2]`
 - `keypoints_2d` are ordered from **tail to head**
+- `keypoints_2d[0]` is the arrow tail point on the centerline
+- `keypoints_2d[-1]` is the arrow head tip on the centerline
+- for polyline / curve arrows, intermediate keypoints are path control points rather than arrow-head corner points
 - each point is `[x, y]`
 - each arrow must contain at least `2` points
 
@@ -124,6 +127,12 @@ Each record stores:
 - image width / height
 - per-arrow bbox
 - per-arrow ordered keypoints
+
+Keypoint semantics are fixed across real and synthetic data:
+
+- first keypoint = arrow tail point
+- last keypoint = arrow head tip
+- intermediate keypoints = path control points
 
 The JSONL records are then encoded into the normalized JSON grounding target during dataset loading.
 
