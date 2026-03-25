@@ -7,7 +7,7 @@ from vlm_det.data.prepare import prepare_normalized_dataset
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Prepare normalized arrow annotations.")
+    parser = argparse.ArgumentParser(description="Prepare arrow annotations into train/val JSONL files.")
     parser.add_argument("--raw-json-dir", required=True)
     parser.add_argument("--image-dir", required=True)
     parser.add_argument("--output-dir", required=True)

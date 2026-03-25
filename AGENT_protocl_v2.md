@@ -58,6 +58,14 @@
 
 - CLI 入口：`scripts/prepare_data.py`
 - 实现：`src/vlm_det/data/prepare.py`
+- 当前标准命令：
+
+```bash
+python scripts/prepare_data.py \
+  --raw-json-dir data/raw/json \
+  --image-dir data/raw/figure \
+  --output-dir data/processed
+```
 
 当前输出 JSONL 的 `instances` 内部格式是：
 
@@ -318,4 +326,3 @@ Keypoints must be ordered from tail to head, and each arrow must contain at leas
 - 数据分布对齐
 - 指标收紧
 - 推理健壮性增强
-

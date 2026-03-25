@@ -106,14 +106,16 @@ Raw LabelMe-style annotations can be converted into normalized JSONL files with:
 python scripts/prepare_data.py \
   --raw-json-dir data/raw/json \
   --image-dir data/raw/figure \
-  --output-dir data/processed/normalized
+  --output-dir data/processed
 ```
 
 This produces:
 
 ```text
-data/processed/normalized/train.jsonl
-data/processed/normalized/val.jsonl
+data/processed/train.jsonl
+data/processed/val.jsonl
+data/processed/reports/data_cleaning_report.json
+data/processed/reports/split_manifest.json
 ```
 
 Each record stores:

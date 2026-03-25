@@ -36,8 +36,8 @@ prompt:
     Keypoints must be ordered from tail to head, and each arrow must contain at least 2 points.
 
 data:
-  train_path: data/processed/normalized/train.jsonl
-  val_path: data/processed/normalized/val.jsonl
+  train_path: data/processed/train.jsonl
+  val_path: data/processed/val.jsonl
   shuffle_instances_for_training: true
   num_workers: 4
   pin_memory: true

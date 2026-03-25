@@ -57,8 +57,8 @@ class PromptConfig:
 
 @dataclass
 class DataConfig:
-    train_path: str = "data/processed/normalized/train.jsonl"
-    val_path: str = "data/processed/normalized/val.jsonl"
+    train_path: str = "data/processed/train.jsonl"
+    val_path: str = "data/processed/val.jsonl"
     shuffle_instances_for_training: bool = True
     num_workers: int = 4
     pin_memory: bool = True
