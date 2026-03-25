@@ -35,7 +35,6 @@ prompt:
 data:
   train_path: data/sync/train.jsonl
   val_path: data/sync/val.jsonl
-  shuffle_instances_for_training: true
   num_workers: 10
   pin_memory: true
   persistent_workers: true

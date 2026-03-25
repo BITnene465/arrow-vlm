@@ -231,17 +231,14 @@ Keypoints must be ordered from tail to head, and each arrow must contain at leas
 - 保存 raw output
 - 解析失败时也落盘
 
-### 8.3 真实数据准备对 point label 假设很强
+### 8.3 真实数据准备按原始点顺序落盘
 
-`prepare.py` 里只接受：
+`prepare.py` 当前不会使用 point label 决定 keypoint 顺序。
 
-- `p1`
-- `p2`
-- `1`
-- `2`
+- 点顺序直接沿用原始标注顺序
+- `p1/p2/1/2` 不再参与排序或过滤
 
-如果业务原始标注还有别的点标签，实例会被丢弃。
-这不是代码 bug，但训练前要核实数据。
+因此真实数据的 keypoint 语义，完全取决于原始标注文件本身是否已经按正确顺序存储。
 
 ### 8.4 synthetic pipeline 还有一个过时配置项
 

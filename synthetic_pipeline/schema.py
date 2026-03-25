@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from vlm_det.data.ordering import sort_instances_canonical
+
 
 @dataclass
 class ArrowInstance:
@@ -82,5 +84,8 @@ class SyntheticSample:
             "single_crop_padding_ratio": self.scene.single_crop_padding_ratio,
             "render_meta": dict(self.render_meta),
             "context_patches": [patch.to_record() for patch in self.context_patches],
-            "instances": [instance.to_record() for instance in self.instances],
+            "instances": [
+                instance.to_record()
+                for instance in sort_instances_canonical(self.instances)
+            ],
         }

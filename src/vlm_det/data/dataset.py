@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import copy
-import random
 from pathlib import Path
 from typing import Any
 
@@ -24,36 +22,25 @@ class ArrowSFTDataset(Dataset):
         codec: ArrowCodec,
         system_prompt: str,
         user_prompt: str,
-        shuffle_instances: bool = False,
     ) -> None:
         self.records = load_jsonl(jsonl_path)
         self.codec = codec
         self.system_prompt = system_prompt
         self.user_prompt = user_prompt
-        self.shuffle_instances = shuffle_instances
 
     def __len__(self) -> int:
         return len(self.records)
 
     def __getitem__(self, index: int) -> dict[str, Any]:
-        record = copy.deepcopy(self.records[index])
+        record = self.records[index]
         image_path = Path(record["image_path"])
         image = Image.open(image_path).convert("RGB")
         instances = record.get("instances", [])
-        if self.shuffle_instances and len(instances) > 1:
-            random.shuffle(instances)
         gt_struct = {
             "instances": [
                 {
                     "bbox": instance["bbox"],
                     "keypoints": instance["keypoints"],
-                    **({"group_id": instance["group_id"]} if "group_id" in instance else {}),
-                    **({"raw_bbox": instance["raw_bbox"]} if "raw_bbox" in instance else {}),
-                    **(
-                        {"raw_keypoints": instance["raw_keypoints"]}
-                        if "raw_keypoints" in instance
-                        else {}
-                    ),
                 }
                 for instance in instances
             ]

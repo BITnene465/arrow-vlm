@@ -110,14 +110,12 @@ def main() -> None:
         codec=codec,
         system_prompt=config.prompt.system_prompt,
         user_prompt=config.prompt.user_prompt,
-        shuffle_instances=config.data.shuffle_instances_for_training,
     )
     val_dataset = ArrowSFTDataset(
         jsonl_path=config.data.val_path,
         codec=codec,
         system_prompt=config.prompt.system_prompt,
         user_prompt=config.prompt.user_prompt,
-        shuffle_instances=False,
     )
     print("[startup] building dataloaders...", flush=True)
     train_loader = _build_dataloader(

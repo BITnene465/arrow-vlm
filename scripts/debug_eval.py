@@ -37,7 +37,6 @@ def _build_dataset(config, codec: ArrowCodec, split: str) -> ArrowSFTDataset:
         codec=codec,
         system_prompt=config.prompt.system_prompt,
         user_prompt=config.prompt.user_prompt,
-        shuffle_instances=False,
     )
 
 

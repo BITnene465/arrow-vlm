@@ -40,7 +40,6 @@ prompt:
 data:
   train_path: data/processed/train.jsonl
   val_path: data/processed/val.jsonl
-  shuffle_instances_for_training: true
   num_workers: 8
   pin_memory: true
   persistent_workers: true
