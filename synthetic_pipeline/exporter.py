@@ -50,6 +50,7 @@ class DatasetExporter:
         for instance in sample.instances:
             bbox = instance.bbox
             draw.rectangle((bbox[0], bbox[1], bbox[2], bbox[3]), outline=(255, 0, 0), width=2)
+            draw.text((bbox[0] + 4, bbox[1] + 4), instance.label, fill=(255, 0, 0))
             for point in instance.keypoints:
                 x_value, y_value = point
                 draw.ellipse((x_value - 3, y_value - 3, x_value + 3, y_value + 3), fill=(0, 180, 255))

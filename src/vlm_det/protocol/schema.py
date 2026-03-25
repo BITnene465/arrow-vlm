@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
+
+
+ARROW_LABELS = {"single_arrow", "double_arrow"}
+
+
 @dataclass
 class ArrowPoint:
     x: float
@@ -9,6 +15,7 @@ class ArrowPoint:
 
 @dataclass
 class ArrowInstance:
+    label: str
     bbox: list[float]
     keypoints: list[ArrowPoint]
 
@@ -26,6 +33,7 @@ def annotation_from_dict(payload: dict[str, Any]) -> ArrowAnnotation:
             keypoints.append(ArrowPoint(float(point[0]), float(point[1])))
         instances.append(
             ArrowInstance(
+                label=str(item.get("label", "")),
                 bbox=[float(value) for value in item.get("bbox", [])],
                 keypoints=keypoints,
             )
@@ -37,6 +45,7 @@ def annotation_to_dict(annotation: ArrowAnnotation) -> dict[str, Any]:
     return {
         "instances": [
             {
+                "label": instance.label,
                 "bbox": list(instance.bbox),
                 "keypoints": [
                     [point.x, point.y] for point in instance.keypoints

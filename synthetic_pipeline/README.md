@@ -19,7 +19,7 @@
 - `renderer/procedural.py`
   - 纯程序渲染基线
 - `renderer/hybrid.py`
-  - 真实背景 / patch / 纹理混合渲染
+  - 真实背景 / patch 混合渲染
 - `exporter.py`
   - 输出 JSONL / manifest / debug 可视化
 - `configs/base.yaml`
@@ -51,12 +51,17 @@ data/sync/
 ```json
 [
   {
-    "label": "arrow",
+    "label": "single_arrow",
     "bbox_2d": [123, 456, 789, 900],
     "keypoints_2d": [[130, 470], [188, 471]]
   }
 ]
 ```
+
+其中 `label` 现在有两类：
+
+- `single_arrow`
+- `double_arrow`
 
 ## 快速开始
 
@@ -126,22 +131,17 @@ python synthetic_pipeline/generate_sync_dataset.py \
 
 - 多档分辨率，从低分辨率到 `1024`
 - 不同数量的 arrows
-- 横平竖直主方向箭头占多数，贴近真实图中的主流分布
+- `single_arrow` / `double_arrow` 两类实例
+- 低分辨率图更稀疏，高分辨率图允许更多 arrows
 - 更宽的尺寸分布：
   - 小箭头
   - 中等箭头
   - 大箭头
   - `single_hero` 单大箭头场景
   - `single_crop` 单箭头 crop 场景
-- 不同点数的 polyline arrows
-- 多样式曲线箭头，关键点顺序固定为：
-  - 第一个点 = 箭头尾部
-  - 最后一个点 = 箭头头部尖点
-  - 中间点 = 拐点 / 曲线控制拐点
-- 多种箭头样式：
-  - 细线 / 中粗 / 粗线 / marker 风格
-  - 实心箭头头 / 空心箭头头
-  - 实线 / 虚线
+- 直线箭头，关键点顺序固定为：
+  - `single_arrow`：第一个点 = 箭头尾部，最后一个点 = 箭头头部尖点
+  - `double_arrow`：第一个点和最后一个点 = 两端头部尖点
 - 基础干扰元素：
   - 直线
   - 矩形
@@ -156,10 +156,28 @@ python synthetic_pipeline/generate_sync_dataset.py \
 
 关键点语义需要特别固定下来，避免后续出现理解错位：
 
-- `keypoints[0]` 一定是箭头尾部中心线点
-- `keypoints[-1]` 一定是箭头头部的尖点
+- `single_arrow`：`keypoints[0]` = 尾部中心线点，`keypoints[-1]` = 头部尖点
+- `double_arrow`：`keypoints[0]` 与 `keypoints[-1]` = 两端头部尖点
+- `double_arrow`：写入 JSONL 前统一规范成左侧 head 在前，右侧 head 在后；若 `x` 相同，则更靠上的点在前
 - 中间 keypoints 只表示路径形状，不表示箭头头部两侧轮廓
 - 训练、评估、可视化都应沿用这套定义
+
+synthetic 默认也会按 `arrow_label_weights` 采样类别，目前配置里：
+
+- `single_arrow: 0.82`
+- `double_arrow: 0.18`
+
+除了 keypoint 语义之外，图内多个 instance 的顺序也必须固定，避免
+同一张图在不同导出路径下产生不同 JSON 序列。当前 synthetic 导出在
+最终写 JSONL 前统一做 canonical 排序，sort key 为：
+
+- `(y1, x1, y2, x2, y_first, x_first, y_last, x_last, n_points)`
+- 其中 `bbox = [x1, y1, x2, y2]`
+- `y_first, x_first` 来自 `keypoints[0]`
+- `y_last, x_last` 来自 `keypoints[-1]`
+
+这条规则和真实数据 `prepare_data.py` 的落盘规则保持一致，不允许再由
+dataset 读取阶段做二次重排。
 
 `single_crop` 场景会混入最终数据集，而不是单独导出一套子集。它的特点是：
 
@@ -170,16 +188,7 @@ python synthetic_pipeline/generate_sync_dataset.py \
 
 此外当前还加入了：
 
-- 双头箭头
-  - 先作为 hard negative / 干扰元素绘制
-  - 不进入正样本标注
-- 多主题风格化箭头
-  - scientific
-  - drawio
-  - ppt
-  - grant_figure
-  - marker_like
-  - handdrawn
+- 固定样式的黑色直箭头
 
 ## Hybrid Renderer
 
@@ -193,14 +202,22 @@ python synthetic_pipeline/generate_sync_dataset.py \
 
 - 从真实业务图裁切背景，作为整张图的 base canvas
 - 采样无箭头负样本 patch，作为上下文块粘贴回画面
-- 从真实箭头实例中估计颜色 / 粗细 / 头部尺度，指导程序箭头渲染
-- 用真实纹理 patch 给程序箭头填充纹理，再做轻量退化
+- 采样带正样本箭头的 crop patch，并把 crop 内完整实例同步映射成新的 GT
+- 程序箭头统一使用固定 SVG 直箭头渲染
 
-这意味着第一版还不是“直接贴真实箭头 crop”，但已经具备：
+当前箭头的主绘制链已经切到 `SVG -> RGBA raster -> PIL compositing`：
+
+- 箭头、程序干扰物、occluder 不再走 `PIL.ImageDraw`
+- `PIL` 只保留背景生成、真实 patch 粘贴、退化和导出
+- 程序箭头当前固定为单一直箭头
+
+这意味着当前版本已经具备：
 
 - 统一 schema
 - procedural / hybrid 双后端
 - 基于 `data/processed` 的资产索引
+- 真实背景 patch / 负样本 context patch / 正样本 arrow patch 三类资产
+- 按分辨率动态调整箭头密度，低分辨率更稀疏，高分辨率允许更多实例
 - 对训练栈兼容的 JSONL 导出
 
 ## 训练接入
@@ -234,9 +251,10 @@ python synthetic_pipeline/generate_sync_dataset.py \
 - 已支持直接导出 `data/sync/`，与当前训练框架兼容
 - 已加入 `train_sync_posttrain.yaml` 作为 synthetic post-training 配置
 - 坐标统一归一化到 `0~999`
-- 已加入多主题箭头风格、不同粗细、不同线型
-- 已加入曲线箭头，关键点顺序固定为尾部到头部
-- 已加入双头箭头作为干扰元素
+- 已收敛为固定样式的 SVG 直箭头，关键点顺序固定为尾部到头部
 - 已加入 `single_crop` 单箭头 crop 场景，并混入最终生成分布
 - 已切换到 JSON 数字协议，更贴近 `Qwen3-VL` 官方 grounding 用法
 - 已拆出模块化引擎，并支持 `procedural` / `hybrid` 双 renderer
+- 已把箭头主渲染链切到 SVG 光栅化，PIL 不再负责箭头主体绘制
+- 已加入 arrow patch 资产复用，并同步做 crop 内实例坐标变换
+- 已按分辨率对箭头数量做动态缩放和上限约束

@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11,<3.12"
 license = "MIT"
 dependencies = [
+  "cairosvg>=2.8",
   "numpy>=1.26",
   "pillow>=10.0",
   "python-dotenv>=1.0",

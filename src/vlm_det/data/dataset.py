@@ -39,6 +39,7 @@ class ArrowSFTDataset(Dataset):
         gt_struct = {
             "instances": [
                 {
+                    "label": instance["label"],
                     "bbox": instance["bbox"],
                     "keypoints": instance["keypoints"],
                 }

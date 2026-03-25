@@ -8,6 +8,7 @@ from vlm_det.data.ordering import sort_instances_canonical
 
 @dataclass
 class ArrowInstance:
+    label: str
     bbox: list[float]
     keypoints: list[list[float]]
     render_bbox: list[float] | None = None
@@ -17,6 +18,7 @@ class ArrowInstance:
 
     def to_record(self) -> dict[str, Any]:
         payload = {
+            "label": self.label,
             "bbox": [round(float(value), 2) for value in self.bbox],
             "keypoints": [
                 [round(float(point[0]), 2), round(float(point[1]), 2)]

@@ -11,8 +11,11 @@ renderer:
     use_real_background_probability: 1.0
     context_patch_probability: 0.8
     context_patches_range: [1, 4]
-    texture_patch_probability: 0.95
-    texture_opacity_range: [0.75, 0.95]
+    arrow_patch_probability: 0.42
+    arrow_patches_range: [0, 2]
+    arrow_patch_scale_range: [0.7, 1.15]
+    arrow_patch_placement_retry: 28
+    arrow_patch_max_iou: 0.08
     draw_procedural_distractors_probability: 0.25
     procedural_distractor_scale: 0.45
     degradation_scale: 0.6
@@ -23,9 +26,14 @@ assets:
     - data/processed/val.jsonl
   max_records: null
   background_min_crop_ratio: 0.35
+  background_retry: 24
   negative_crop_retry: 20
-  texture_patch_size_range: [48, 160]
+  instance_exclusion_margin_ratio: 0.12
   context_patch_size_range: [96, 320]
+  arrow_patch_retry: 24
+  arrow_patch_pad_ratio_range: [0.12, 0.34]
+  arrow_patch_min_context_px: 12
+  arrow_patch_max_instances_per_crop: 4
 
 debug:
   save_visualizations: false
@@ -55,39 +63,21 @@ resolution_buckets:
 
 arrow_count_bins:
   - min: 1
-    max: 8
-    weight: 0.35
-  - min: 9
-    max: 20
-    weight: 0.4
-  - min: 21
-    max: 40
-    weight: 0.2
-  - min: 41
-    max: 80
-    weight: 0.05
-
-point_count_bins:
-  - count: 2
-    weight: 0.45
-  - count: 3
-    weight: 0.3
-  - count: 4
-    weight: 0.15
-  - count: 5
-    weight: 0.07
-  - count: 6
-    weight: 0.03
-
-geometry_modes:
-  - name: polyline
-    weight: 0.68
-  - name: curve_gentle
+    max: 4
+    weight: 0.38
+  - min: 5
+    max: 10
+    weight: 0.38
+  - min: 11
+    max: 18
     weight: 0.18
-  - name: curve_s
-    weight: 0.1
-  - name: curve_hook
-    weight: 0.04
+  - min: 19
+    max: 30
+    weight: 0.06
+
+arrow_label_weights:
+  single_arrow: 0.82
+  double_arrow: 0.18
 
 scene_modes:
   - name: normal
@@ -123,7 +113,6 @@ layout:
   edge_margin_ratio: 0.04
   min_arrow_length_ratio: 0.08
   max_arrow_length_ratio: 0.35
-  turn_angle_jitter_deg: 45
   primary_axis_aligned_probability: 0.58
   orthogonal_angle_jitter_deg: 10
 
@@ -133,100 +122,10 @@ style:
     paper: 0.35
     gray: 0.2
   distractor_line_width_range: [1, 3]
-  double_head_distractor_range: [0, 8]
-  arrow_style_profiles:
-    - name: scientific
-      weight: 0.2
-      line_width_range: [1, 2]
-      head_length_range: [10, 18]
-      head_width_range: [6, 12]
-      head_styles: ["filled", "open"]
-      line_styles: ["solid", "dashed", "dotted"]
-      render_styles: ["clean"]
-      palettes:
-        - [20, 20, 20]
-        - [45, 45, 45]
-    - name: drawio
-      weight: 0.22
-      line_width_range: [2, 4]
-      head_length_range: [12, 22]
-      head_width_range: [8, 16]
-      head_styles: ["filled", "open"]
-      line_styles: ["solid", "dashed"]
-      render_styles: ["clean"]
-      palettes:
-        - [46, 84, 132]
-        - [78, 95, 110]
-        - [83, 109, 130]
-    - name: standard
-      weight: 0.18
-      line_width_range: [2, 4]
-      head_length_range: [12, 22]
-      head_width_range: [8, 16]
-      head_styles: ["filled", "open"]
-      line_styles: ["solid"]
-      render_styles: ["clean"]
-      palettes:
-        - [20, 20, 20]
-        - [60, 60, 60]
-        - [10, 70, 120]
-        - [110, 40, 20]
-    - name: ppt
-      weight: 0.16
-      line_width_range: [4, 7]
-      head_length_range: [16, 28]
-      head_width_range: [12, 22]
-      head_styles: ["filled", "open"]
-      line_styles: ["solid", "dashed"]
-      render_styles: ["clean"]
-      palettes:
-        - [31, 78, 121]
-        - [192, 80, 77]
-        - [128, 100, 162]
-        - [75, 172, 198]
-    - name: grant_figure
-      weight: 0.12
-      line_width_range: [3, 6]
-      head_length_range: [14, 26]
-      head_width_range: [10, 20]
-      head_styles: ["filled", "open"]
-      line_styles: ["solid", "dashed"]
-      render_styles: ["clean"]
-      palettes:
-        - [185, 32, 32]
-        - [33, 97, 158]
-        - [38, 121, 72]
-        - [50, 50, 50]
-    - name: marker_like
-      weight: 0.07
-      line_width_range: [6, 10]
-      head_length_range: [18, 32]
-      head_width_range: [14, 24]
-      head_styles: ["filled"]
-      line_styles: ["solid", "marker"]
-      render_styles: ["marker", "marker_jitter"]
-      palettes:
-        - [35, 35, 35]
-        - [17, 74, 141]
-        - [162, 54, 33]
-        - [42, 113, 74]
-    - name: handdrawn
-      weight: 0.05
-      line_width_range: [2, 5]
-      head_length_range: [12, 24]
-      head_width_range: [8, 18]
-      head_styles: ["filled", "open"]
-      line_styles: ["solid", "dashed"]
-      render_styles: ["handdrawn", "handdrawn_heavy"]
-      palettes:
-        - [45, 45, 45]
-        - [92, 68, 41]
-        - [58, 80, 104]
   distractor_lines_range: [2, 18]
   distractor_boxes_range: [0, 10]
   text_like_strokes_range: [0, 12]
   occluder_count_range: [0, 8]
-  occluded_point_probability: 0.12
   blur_probability: 0.25
   blur_radius_range: [0.4, 1.2]
   jpeg_quality_range: [70, 95]

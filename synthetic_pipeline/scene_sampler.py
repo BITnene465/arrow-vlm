@@ -4,6 +4,8 @@ import math
 import random
 from typing import Any
 
+from vlm_det.data.ordering import normalize_keypoints_for_label
+
 from synthetic_pipeline.schema import ArrowInstance, SceneSpec, SyntheticSample
 
 
@@ -23,21 +25,42 @@ def _sample_arrow_count(rng: random.Random, bins: list[dict[str, Any]]) -> int:
     return rng.randint(int(bucket["min"]), int(bucket["max"]))
 
 
-def _sample_arrow_count_for_scene(rng: random.Random, bins: list[dict[str, Any]], scene_mode: str) -> int:
+def resolution_instance_cap(width: int, height: int) -> int:
+    area = width * height
+    if area <= 512 * 512:
+        return 8
+    if area <= 768 * 768:
+        return 14
+    if area <= 960 * 960:
+        return 24
+    return 36
+
+
+def resolution_density_scale(width: int, height: int) -> float:
+    reference_area = float(768 * 768)
+    area_scale = ((width * height) / reference_area) ** 0.72
+    if max(width, height) <= 512:
+        area_scale *= 0.82
+    elif max(width, height) >= 960:
+        area_scale *= 1.12
+    return clamp(area_scale, 0.38, 1.55)
+
+
+def _sample_arrow_count_for_scene(
+    rng: random.Random,
+    bins: list[dict[str, Any]],
+    scene_mode: str,
+    width: int,
+    height: int,
+) -> int:
     if scene_mode in {"single_hero", "single_crop"}:
         return 1
     if scene_mode == "sparse_large":
-        return rng.randint(1, 6)
-    return _sample_arrow_count(rng, bins)
-
-
-def _sample_point_count(rng: random.Random, bins: list[dict[str, Any]]) -> int:
-    bucket = _weighted_range_choice(rng, bins)
-    return int(bucket["count"])
-
-
-def _sample_geometry_mode(rng: random.Random, entries: list[dict[str, Any]]) -> str:
-    return str(_weighted_range_choice(rng, entries)["name"])
+        sparse_cap = min(resolution_instance_cap(width, height), 6)
+        return rng.randint(1, max(sparse_cap, 1))
+    base_count = _sample_arrow_count(rng, bins)
+    scaled_count = int(round(base_count * resolution_density_scale(width, height)))
+    return max(1, min(scaled_count, resolution_instance_cap(width, height)))
 
 
 def _sample_scene_mode(rng: random.Random, entries: list[dict[str, Any]]) -> str:
@@ -46,6 +69,14 @@ def _sample_scene_mode(rng: random.Random, entries: list[dict[str, Any]]) -> str
 
 def _sample_arrow_size_mode(rng: random.Random, entries: list[dict[str, Any]]) -> dict[str, Any]:
     return _weighted_range_choice(rng, entries)
+
+
+def _sample_arrow_label(rng: random.Random, weights: dict[str, Any] | None) -> str:
+    if not weights:
+        return "single_arrow"
+    labels = list(weights.keys())
+    values = [float(weights[label]) for label in labels]
+    return str(rng.choices(labels, weights=values, k=1)[0])
 
 
 def clamp(value: float, lower: float, upper: float) -> float:
@@ -84,9 +115,7 @@ def normalize(vec_x: float, vec_y: float) -> tuple[float, float]:
 def sample_arrow_points(
     width: int,
     height: int,
-    point_count: int,
     layout_cfg: dict[str, Any],
-    geometry_mode: str,
     size_mode: dict[str, Any],
     rng: random.Random,
 ) -> list[tuple[float, float]]:
@@ -113,46 +142,7 @@ def sample_arrow_points(
     total_length = rng.uniform(min_length, max_length)
     end_x = clamp(start_x + math.cos(angle) * total_length, margin, width - margin)
     end_y = clamp(start_y + math.sin(angle) * total_length, margin, height - margin)
-
-    points = [(start_x, start_y)]
-    if point_count == 2:
-        points.append((end_x, end_y))
-        return points
-
-    vx = end_x - start_x
-    vy = end_y - start_y
-    nx, ny = normalize(vx, vy)
-    ox, oy = orthogonal(nx, ny)
-    jitter_deg = float(layout_cfg["turn_angle_jitter_deg"])
-    jitter_scale = total_length * 0.08
-    if geometry_mode == "curve_gentle":
-        jitter_scale = total_length * 0.14
-    elif geometry_mode == "curve_s":
-        jitter_scale = total_length * 0.18
-    elif geometry_mode == "curve_hook":
-        jitter_scale = total_length * 0.22
-    for index in range(1, point_count - 1):
-        t = index / (point_count - 1)
-        base_x = start_x + vx * t
-        base_y = start_y + vy * t
-        if geometry_mode == "curve_gentle":
-            offset = rng.uniform(jitter_scale * 0.35, jitter_scale)
-        elif geometry_mode == "curve_s":
-            direction = -1.0 if index % 2 == 1 else 1.0
-            offset = rng.uniform(jitter_scale * 0.45, jitter_scale) * direction
-        elif geometry_mode == "curve_hook":
-            direction = 1.0 if index == point_count - 2 else 0.35
-            offset = rng.uniform(jitter_scale * 0.4, jitter_scale) * direction
-        else:
-            offset = rng.uniform(-jitter_scale, jitter_scale)
-        angle_jitter = math.radians(rng.uniform(-jitter_deg, jitter_deg))
-        mix_x = ox * math.cos(angle_jitter) - nx * math.sin(angle_jitter)
-        mix_y = oy * math.cos(angle_jitter) - ny * math.sin(angle_jitter)
-        point_x = clamp(base_x + mix_x * offset, margin, width - margin)
-        point_y = clamp(base_y + mix_y * offset, margin, height - margin)
-        points.append((point_x, point_y))
-    points.append((end_x, end_y))
-    return points
+    return [(start_x, start_y), (end_x, end_y)]
 
 
 def arrow_bbox(points: list[list[float]] | list[tuple[float, float]], pad: float) -> list[float]:
@@ -170,7 +160,13 @@ class SceneSampler:
         width, height = _sample_resolution(rng, self.cfg["resolution_buckets"])
         scene_mode = _sample_scene_mode(rng, self.cfg["scene_modes"])
         sample_id = f"{split}_{index:06d}"
-        requested_arrows = _sample_arrow_count_for_scene(rng, self.cfg["arrow_count_bins"], scene_mode)
+        requested_arrows = _sample_arrow_count_for_scene(
+            rng,
+            self.cfg["arrow_count_bins"],
+            scene_mode,
+            width,
+            height,
+        )
 
         instances: list[ArrowInstance] = []
         existing_boxes: list[list[float]] = []
@@ -208,7 +204,11 @@ class SceneSampler:
         return SyntheticSample(
             scene=scene,
             instances=instances,
-            render_meta={"requested_arrows": requested_arrows},
+            render_meta={
+                "requested_arrows": requested_arrows,
+                "resolution_instance_cap": resolution_instance_cap(width, height),
+                "resolution_density_scale": round(resolution_density_scale(width, height), 3),
+            },
         )
 
     def _sample_instance(
@@ -222,11 +222,9 @@ class SceneSampler:
         layout_cfg = self.cfg["layout"]
         max_iou = float(layout_cfg["max_instance_iou"])
         retries = int(layout_cfg["max_generation_retries_per_arrow"])
-        point_count = _sample_point_count(rng, self.cfg["point_count_bins"])
-
         for _ in range(retries):
-            geometry_mode = _sample_geometry_mode(rng, self.cfg["geometry_modes"])
             size_mode = _sample_arrow_size_mode(rng, self.cfg["arrow_size_modes"])
+            arrow_label = _sample_arrow_label(rng, self.cfg.get("arrow_label_weights"))
             if scene_mode == "single_hero":
                 size_mode = {"name": "hero", "min_length_ratio": 0.55, "max_length_ratio": 0.92}
             elif scene_mode == "single_crop":
@@ -237,9 +235,7 @@ class SceneSampler:
             points = sample_arrow_points(
                 width=width,
                 height=height,
-                point_count=point_count,
                 layout_cfg=layout_cfg,
-                geometry_mode=geometry_mode,
                 size_mode=size_mode,
                 rng=rng,
             )
@@ -254,13 +250,16 @@ class SceneSampler:
                 continue
             if any(bbox_iou(bbox, other) > max_iou for other in existing_boxes):
                 continue
+            normalized_points = normalize_keypoints_for_label(
+                arrow_label,
+                [[round(x, 2), round(y, 2)] for x, y in points],
+            )
             return ArrowInstance(
+                label=arrow_label,
                 bbox=[round(value, 2) for value in bbox],
-                keypoints=[[round(x, 2), round(y, 2)] for x, y in points],
+                keypoints=normalized_points,
                 meta={
-                    "geometry_mode": geometry_mode,
                     "size_mode": str(size_mode.get("name", "medium")),
-                    "point_count": point_count,
                 },
             )
         return None

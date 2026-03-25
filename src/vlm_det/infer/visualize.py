@@ -22,6 +22,7 @@ def draw_prediction(image: Image.Image, prediction: dict[str, Any]) -> Image.Ima
     draw = ImageDraw.Draw(canvas)
     for index, instance in enumerate(prediction.get("instances", [])):
         color = PALETTE[index % len(PALETTE)]
+        label = str(instance.get("label", "unknown"))
         bbox = [float(value) for value in instance.get("bbox", [])]
         if len(bbox) == 4:
             draw.rectangle(bbox, outline=color, width=3)
@@ -34,20 +35,24 @@ def draw_prediction(image: Image.Image, prediction: dict[str, Any]) -> Image.Ima
             y = float(point[1])
             draw.ellipse((x - 5, y - 5, x + 5, y + 5), fill=color, outline=color, width=2)
             if point_index == 0:
-                draw.text((x + 6, y - 12), "S", fill=color)
+                draw.text((x + 6, y - 12), "K0", fill=color)
             elif point_index == len(keypoints) - 1:
-                draw.text((x + 6, y - 12), "H", fill=color)
+                draw.text((x + 6, y - 12), "K-1", fill=color)
         if len(bbox) == 4:
-            draw.text((bbox[0] + 4, bbox[1] + 4), f"arrow {index + 1}", fill=color)
+            draw.text((bbox[0] + 4, bbox[1] + 4), f"{label} {index + 1}", fill=color)
     return canvas
 
 
 def format_prediction_summary(prediction: dict[str, Any]) -> str:
     instances = prediction.get("instances", [])
     point_count = sum(len(instance.get("keypoints", [])) for instance in instances)
+    single_count = sum(1 for instance in instances if instance.get("label") == "single_arrow")
+    double_count = sum(1 for instance in instances if instance.get("label") == "double_arrow")
     return "\n".join(
         [
             f"Detected arrows: {len(instances)}",
+            f"Single arrows: {single_count}",
+            f"Double arrows: {double_count}",
             f"Total keypoints: {point_count}",
         ]
     )

@@ -3,22 +3,23 @@ from __future__ import annotations
 import random
 from typing import Any
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
 from synthetic_pipeline.renderer.common import (
     arrow_bbox,
+    default_arrow_style,
     degrade_image,
-    draw_arrow,
-    draw_distractors,
-    draw_occluders,
     make_background,
-    render_textured_mask,
-    sample_arrow_style,
     sample_occluders,
     scene_style_config,
 )
-from synthetic_pipeline.scene_sampler import clamp
-from synthetic_pipeline.schema import ContextPatch, SyntheticSample
+from synthetic_pipeline.renderer.svg import (
+    SvgCanvas,
+    draw_distractors_svg,
+    draw_occluders_svg,
+)
+from synthetic_pipeline.scene_sampler import bbox_iou, clamp, resolution_instance_cap
+from synthetic_pipeline.schema import ArrowInstance, ContextPatch, SyntheticSample
 
 
 class HybridRenderer:
@@ -43,7 +44,6 @@ class HybridRenderer:
         if image is None:
             image = make_background(scene.image_width, scene.image_height, style_cfg, rng)
 
-        draw = ImageDraw.Draw(image)
         context_patch_count = 0
         if asset_bank is not None and asset_bank.is_available() and rng.random() < float(self.hybrid_cfg["context_patch_probability"]):
             patch_range = self.hybrid_cfg["context_patches_range"]
@@ -63,11 +63,6 @@ class HybridRenderer:
                 paste_x = int(clamp(x1, 0, max(scene.image_width - patch_w, 0)))
                 paste_y = int(clamp(y1, 0, max(scene.image_height - patch_h, 0)))
                 image.paste(patch, (paste_x, paste_y))
-                draw.rectangle(
-                    (paste_x, paste_y, paste_x + patch_w, paste_y + patch_h),
-                    outline=(230, 230, 230),
-                    width=1,
-                )
                 sample.context_patches.append(
                     ContextPatch(
                         bbox=[paste_x, paste_y, paste_x + patch_w, paste_y + patch_h],
@@ -78,9 +73,12 @@ class HybridRenderer:
                 )
                 context_patch_count += 1
 
+        arrow_patch_count, arrow_patch_instances = self._paste_arrow_patches(sample, image, asset_bank, rng)
+
+        canvas = SvgCanvas(scene.image_width, scene.image_height)
         if rng.random() < float(self.hybrid_cfg["draw_procedural_distractors_probability"]):
-            draw_distractors(
-                draw,
+            draw_distractors_svg(
+                canvas,
                 scene.image_width,
                 scene.image_height,
                 style_cfg,
@@ -88,30 +86,15 @@ class HybridRenderer:
                 scale=float(self.hybrid_cfg["procedural_distractor_scale"]),
             )
 
-        asset_style_count = 0
-        textured_arrow_count = 0
+        arrow_style = default_arrow_style(scene.image_width, scene.image_height)
         for instance in sample.instances:
-            style = None
-            if asset_bank is not None and asset_bank.is_available():
-                style = asset_bank.sample_style_hint(rng)
-            if style is None:
-                style = sample_arrow_style(style_cfg, rng)
-                style["source_asset_sample_id"] = None
-                style["source_asset_instance_id"] = None
-            else:
-                style["style_profile"] = "asset_guided"
-                asset_style_count += 1
-            style["geometry_mode"] = instance.meta.get("geometry_mode", "polyline")
-            if asset_bank is not None and asset_bank.is_available() and rng.random() < float(self.hybrid_cfg["texture_patch_probability"]):
-                texture_sample = asset_bank.sample_texture_patch(rng)
-            else:
-                texture_sample = None
-            self._render_instance(image, draw, scene.image_width, scene.image_height, instance, style, rng, texture_sample)
-            if texture_sample is not None:
-                textured_arrow_count += 1
+            if instance.meta.get("render_origin") == "asset_patch":
+                continue
+            self._render_instance(canvas, scene.image_width, scene.image_height, instance, arrow_style)
 
         occluders = sample_occluders(scene.image_width, scene.image_height, style_cfg, rng)
-        draw_occluders(draw, occluders, rng)
+        draw_occluders_svg(canvas, occluders, rng)
+        image = self._composite_overlay(image, canvas.rasterize())
         image = degrade_image(
             image,
             style_cfg,
@@ -122,64 +105,35 @@ class HybridRenderer:
             "renderer": self.name,
             "num_context_patches": context_patch_count,
             "num_occluders": len(occluders),
-            "asset_guided_instances": asset_style_count,
-            "textured_instances": textured_arrow_count,
+            "num_arrow_patches": arrow_patch_count,
+            "asset_patch_instances": arrow_patch_instances,
             **background_meta,
+            "vector_backend": "svg",
         }
+
+    @staticmethod
+    def _composite_overlay(base_image: Image.Image, overlay: Image.Image) -> Image.Image:
+        composed = base_image.convert("RGBA")
+        composed.alpha_composite(overlay)
+        return composed.convert("RGB")
 
     def _render_instance(
         self,
-        image: Image.Image,
-        draw: ImageDraw.ImageDraw,
+        canvas: SvgCanvas,
         width: int,
         height: int,
         instance,
         style: dict[str, Any],
-        rng: random.Random,
-        texture_sample,
     ) -> None:
         points = [(float(point[0]), float(point[1])) for point in instance.keypoints]
-        if texture_sample is None:
-            draw_arrow(
-                draw=draw,
-                points=points,
-                line_width=int(style["line_width"]),
-                head_len=int(style["head_len"]),
-                head_width=int(style["head_width"]),
-                color=tuple(style["color"]),
-                head_style=str(style["head_style"]),
-                line_style=str(style["line_style"]),
-                render_style=str(style["render_style"]),
-                rng=rng,
-                geometry_mode=str(style.get("geometry_mode", "polyline")),
-            )
-        else:
-            texture_image, texture_meta = texture_sample
-            mask = Image.new("L", (width, height), 0)
-            mask_draw = ImageDraw.Draw(mask)
-            draw_arrow(
-                draw=mask_draw,
-                points=points,
-                line_width=int(style["line_width"]),
-                head_len=int(style["head_len"]),
-                head_width=int(style["head_width"]),
-                color=255,
-                head_style=str(style["head_style"]),
-                line_style=str(style["line_style"]),
-                render_style=str(style["render_style"]),
-                rng=rng,
-                geometry_mode=str(style.get("geometry_mode", "polyline")),
-            )
-            textured = render_textured_mask(
-                base_image=image,
-                mask=mask,
-                texture=texture_image,
-                color=tuple(style["color"]),
-                opacity=rng.uniform(*self.hybrid_cfg["texture_opacity_range"]),
-            )
-            image.paste(textured)
-            style["texture_source_sample_id"] = texture_meta["source_sample_id"]
-            style["texture_source_crop_bbox"] = texture_meta["source_crop_bbox"]
+        canvas.add_arrow(
+            points=points,
+            line_width=int(style["line_width"]),
+            head_len=int(style["head_len"]),
+            head_width=int(style["head_width"]),
+            color=tuple(style["color"]),
+            double_headed=instance.label == "double_arrow",
+        )
 
         render_box = arrow_bbox(instance.keypoints, int(style["line_width"]), int(style["head_len"]), int(style["head_width"]))
         instance.render_bbox = [
@@ -188,20 +142,151 @@ class HybridRenderer:
             round(clamp(render_box[2], 0, width - 1), 2),
             round(clamp(render_box[3], 0, height - 1), 2),
         ]
-        instance.source_asset_sample_id = style.get("source_asset_sample_id")
-        instance.source_asset_instance_id = style.get("source_asset_instance_id")
-        instance.meta.update(
-            {
-                "style_profile": style.get("style_profile", "asset_guided"),
-                "line_width": int(style["line_width"]),
-                "head_len": int(style["head_len"]),
-                "head_width": int(style["head_width"]),
-                "line_style": str(style["line_style"]),
-                "head_style": str(style["head_style"]),
-                "render_style": str(style["render_style"]),
-                "color": list(style["color"]),
-            }
-        )
-        if style.get("texture_source_sample_id") is not None:
-            instance.meta["texture_source_sample_id"] = style["texture_source_sample_id"]
-            instance.meta["texture_source_crop_bbox"] = style["texture_source_crop_bbox"]
+
+    def _paste_arrow_patches(
+        self,
+        sample: SyntheticSample,
+        image: Image.Image,
+        asset_bank,
+        rng: random.Random,
+    ) -> tuple[int, int]:
+        if asset_bank is None or not asset_bank.is_available():
+            return 0, 0
+        if rng.random() >= float(self.hybrid_cfg["arrow_patch_probability"]):
+            return 0, 0
+        patch_range = self.hybrid_cfg["arrow_patches_range"]
+        target_patches = rng.randint(int(patch_range[0]), int(patch_range[1]))
+        if target_patches <= 0:
+            return 0, 0
+        existing_boxes = [list(instance.bbox) for instance in sample.instances]
+        max_instances = resolution_instance_cap(sample.scene.image_width, sample.scene.image_height)
+        pasted_patches = 0
+        added_instances = 0
+        for _ in range(target_patches):
+            if len(existing_boxes) >= max_instances:
+                break
+            patch_sample = asset_bank.sample_arrow_patch(rng)
+            if patch_sample is None:
+                continue
+            patch_image, patch_meta = patch_sample
+            placement = self._place_arrow_patch(
+                patch_image=patch_image,
+                patch_meta=patch_meta,
+                canvas_width=sample.scene.image_width,
+                canvas_height=sample.scene.image_height,
+                existing_boxes=existing_boxes,
+                remaining_slots=max_instances - len(existing_boxes),
+                rng=rng,
+            )
+            if placement is None:
+                continue
+            patch, paste_x, paste_y, placed_instances = placement
+            image.paste(patch, (paste_x, paste_y))
+            sample.context_patches.append(
+                ContextPatch(
+                    bbox=[paste_x, paste_y, paste_x + patch.width, paste_y + patch.height],
+                    kind="asset_arrow_patch",
+                    source_sample_id=patch_meta["source_sample_id"],
+                    meta={
+                        "source_crop_bbox": patch_meta["source_crop_bbox"],
+                        "instance_count": len(placed_instances),
+                    },
+                )
+            )
+            for placed in placed_instances:
+                sample.instances.append(placed)
+                existing_boxes.append(list(placed.bbox))
+            pasted_patches += 1
+            added_instances += len(placed_instances)
+        return pasted_patches, added_instances
+
+    def _place_arrow_patch(
+        self,
+        *,
+        patch_image: Image.Image,
+        patch_meta: dict[str, Any],
+        canvas_width: int,
+        canvas_height: int,
+        existing_boxes: list[list[float]],
+        remaining_slots: int,
+        rng: random.Random,
+    ) -> tuple[Image.Image, int, int, list[ArrowInstance]] | None:
+        if remaining_slots <= 0:
+            return None
+        scale = rng.uniform(*self.hybrid_cfg["arrow_patch_scale_range"])
+        patch_w = max(24, int(round(patch_image.width * scale)))
+        patch_h = max(24, int(round(patch_image.height * scale)))
+        if patch_w >= canvas_width or patch_h >= canvas_height:
+            fit_scale = min((canvas_width - 4) / max(patch_image.width, 1), (canvas_height - 4) / max(patch_image.height, 1))
+            if fit_scale <= 0.15:
+                return None
+            scale = min(scale, fit_scale)
+            patch_w = max(24, int(round(patch_image.width * scale)))
+            patch_h = max(24, int(round(patch_image.height * scale)))
+        transformed_defs = patch_meta["instances"][:remaining_slots]
+        resized_patch = patch_image.resize((patch_w, patch_h), Image.Resampling.BICUBIC)
+        retries = int(self.hybrid_cfg["arrow_patch_placement_retry"])
+        max_iou = float(self.hybrid_cfg["arrow_patch_max_iou"])
+        for _ in range(retries):
+            paste_x = rng.randint(0, max(canvas_width - patch_w, 0))
+            paste_y = rng.randint(0, max(canvas_height - patch_h, 0))
+            placed_instances = self._project_patch_instances(
+                transformed_defs=transformed_defs,
+                paste_x=paste_x,
+                paste_y=paste_y,
+                scale=scale,
+                source_crop_bbox=patch_meta["source_crop_bbox"],
+            )
+            if not placed_instances:
+                continue
+            if any(
+                bbox_iou(placed.bbox, existing_box) > max_iou
+                for placed in placed_instances
+                for existing_box in existing_boxes
+            ):
+                continue
+            return resized_patch, paste_x, paste_y, placed_instances
+        return None
+
+    @staticmethod
+    def _project_patch_instances(
+        *,
+        transformed_defs: list[dict[str, Any]],
+        paste_x: int,
+        paste_y: int,
+        scale: float,
+        source_crop_bbox: list[int],
+    ) -> list[ArrowInstance]:
+        placed_instances: list[ArrowInstance] = []
+        for instance_def in transformed_defs:
+            bbox = [float(value) for value in instance_def["bbox"]]
+            keypoints = [[float(point[0]), float(point[1])] for point in instance_def["keypoints"]]
+            scaled_bbox = [
+                round(paste_x + bbox[0] * scale, 2),
+                round(paste_y + bbox[1] * scale, 2),
+                round(paste_x + bbox[2] * scale, 2),
+                round(paste_y + bbox[3] * scale, 2),
+            ]
+            scaled_keypoints = [
+                [
+                    round(paste_x + point[0] * scale, 2),
+                    round(paste_y + point[1] * scale, 2),
+                ]
+                for point in keypoints
+            ]
+            placed_instances.append(
+                ArrowInstance(
+                    label=str(instance_def.get("label", "single_arrow")),
+                    bbox=scaled_bbox,
+                    keypoints=scaled_keypoints,
+                    render_bbox=list(scaled_bbox),
+                    source_asset_sample_id=instance_def.get("source_asset_sample_id"),
+                    source_asset_instance_id=instance_def.get("source_asset_instance_id"),
+                    meta={
+                        "render_origin": "asset_patch",
+                        "source_crop_bbox": list(source_crop_bbox),
+                        "scale_from_asset_patch": round(scale, 3),
+                    },
+                )
+            )
+        return placed_instances

@@ -18,7 +18,7 @@ Each prediction is a JSON array. Every item must be:
 
 ```json
 {
-  "label": "arrow",
+  "label": "single_arrow",
   "bbox_2d": [123, 456, 789, 900],
   "keypoints_2d": [
     [130, 470],
@@ -31,10 +31,13 @@ Each prediction is a JSON array. Every item must be:
 Rules:
 
 - all coordinates are normalized integers in `[0, 999]`
+- `label` must be `single_arrow` or `double_arrow`
 - `bbox_2d` uses `[x1, y1, x2, y2]`
-- `keypoints_2d` are ordered from **tail to head**
-- `keypoints_2d[0]` is the arrow tail point on the centerline
-- `keypoints_2d[-1]` is the arrow head tip on the centerline
+- for `single_arrow`, `keypoints_2d` are ordered from **tail to head**
+- for `single_arrow`, `keypoints_2d[0]` is the arrow tail point on the centerline
+- for `single_arrow`, `keypoints_2d[-1]` is the arrow head tip on the centerline
+- for `double_arrow`, `keypoints_2d[0]` and `keypoints_2d[-1]` are the two head tips
+- for `double_arrow`, the stored order is left head first, right head last; if `x` ties, smaller `y` comes first
 - for polyline / curve arrows, intermediate keypoints are path control points rather than arrow-head corner points
 - each point is `[x, y]`
 - each arrow must contain at least `2` points
@@ -125,14 +128,29 @@ Each record stores:
 
 - image path
 - image width / height
+- per-arrow label
 - per-arrow bbox
 - per-arrow ordered keypoints
 
+Before writing each sample to JSONL, the pipeline canonicalizes the in-image
+instance order to keep training targets deterministic. The sort key is:
+
+- `(y1, x1, y2, x2, y_first, x_first, y_last, x_last, n_points)`
+- where `bbox = [x1, y1, x2, y2]`
+- `keypoints[0]` is the first endpoint in the stored path order
+- `keypoints[-1]` is the last endpoint in the stored path order
+
 Keypoint semantics are fixed across real and synthetic data:
 
-- first keypoint = arrow tail point
-- last keypoint = arrow head tip
+- `single_arrow`: first keypoint = tail point, last keypoint = head tip
+- `double_arrow`: first keypoint and last keypoint = the two head tips
+- `double_arrow`: point order is normalized to left-first before writing JSONL
 - intermediate keypoints = path control points
+
+For real LabelMe data, rectangle classes are mapped as:
+
+- `c0~c3` -> `single_arrow`
+- `c4~c7` -> `double_arrow`
 
 The JSONL records are then encoded into the normalized JSON grounding target during dataset loading.
 
@@ -155,6 +173,11 @@ data/sync/
 ```
 
 Those files are directly consumable by the existing training stack.
+
+Synthetic records are also canonicalized before export with the same
+instance-order rule:
+
+- `(y1, x1, y2, x2, y_first, x_first, y_last, x_last, n_points)`
 
 ## Training
 
@@ -284,7 +307,8 @@ The default prompt asks the model to:
 - output only a JSON array
 - avoid markdown and extra text
 - use normalized integer coordinates in `[0, 999]`
-- keep keypoints ordered from tail to head
+- emit `single_arrow` / `double_arrow` labels explicitly
+- keep `single_arrow` keypoints ordered from tail to head
 
 ## Inference
 

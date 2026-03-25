@@ -11,7 +11,7 @@ if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from synthetic_pipeline.asset_bank import AssetBank
-from synthetic_pipeline.config import load_config
+from synthetic_pipeline.config import load_config, normalize_config
 from synthetic_pipeline.exporter import DatasetExporter, dumps_summary
 from synthetic_pipeline.renderer import build_renderer
 from synthetic_pipeline.scene_sampler import SceneSampler
@@ -78,6 +78,7 @@ def main() -> None:
         cfg["workers"] = args.workers
     if args.renderer is not None:
         cfg["renderer"]["name"] = args.renderer
+    cfg = normalize_config(cfg)
 
     output_dir = Path(cfg["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)

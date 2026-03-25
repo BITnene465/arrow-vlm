@@ -22,9 +22,9 @@
 ```json
 [
   {
-    "label": "arrow",
+    "label": "single_arrow | double_arrow",
     "bbox_2d": [x1, y1, x2, y2],
-    "keypoints_2d": [[xt, yt], [xk1, yk1], ..., [xh, yh]]
+    "keypoints_2d": [[x0, y0], [xk1, yk1], ..., [xN, yN]]
   }
 ]
 ```
@@ -35,9 +35,12 @@
 - 不输出 markdown
 - 不输出额外自然语言
 - 所有坐标都是 `[0,999]` 的整数
-- `keypoints_2d` 顺序固定为 **tail -> head**
-- `keypoints_2d[0]` = 箭头尾部中心线点
-- `keypoints_2d[-1]` = 箭头头部尖点
+- `label` 只能是 `single_arrow` 或 `double_arrow`
+- 对 `single_arrow`：`keypoints_2d` 顺序固定为 **tail -> head**
+- 对 `single_arrow`：`keypoints_2d[0]` = 箭头尾部中心线点
+- 对 `single_arrow`：`keypoints_2d[-1]` = 箭头头部尖点
+- 对 `double_arrow`：`keypoints_2d[0]` 与 `keypoints_2d[-1]` 是两端头部尖点
+- 对 `double_arrow`：顺序固定为左侧 head 在前，右侧 head 在后；若 `x` 相同，则更靠上的点在前
 - 中间 keypoints = 路径控制点 / 折点，不是箭头头部两侧角点
 - 每个箭头至少 2 个 keypoints
 
@@ -74,6 +77,7 @@ python scripts/prepare_data.py \
 
 ```json
 {
+  "label": "single_arrow | double_arrow",
   "bbox": [x1, y1, x2, y2],
   "keypoints": [[x, y], ...]
 }
@@ -84,7 +88,14 @@ python scripts/prepare_data.py \
 - 这里保存的是 **原图像素坐标**
 - 还没有归一化到 `[0,999]`
 - 归一化发生在 `ArrowCodec.encode()`
-- `keypoints` 语义和最终协议一致：第一点是 tail，最后一点是 head tip
+- `keypoints` 语义和最终协议一致
+- `c0~c3` -> `single_arrow`
+- `c4~c7` -> `double_arrow`
+- `double_arrow` 会在落盘前统一重排成“左 head 在前，右 head 在后”
+- 最终写入 JSONL 前，会先对图内 `instances` 做 canonical 排序：
+  `(y1, x1, y2, x2, y_first, x_first, y_last, x_last, n_points)`
+- 这条排序规则在真实数据 prepare 和 synthetic export 两侧都要执行，
+  dataset 读取阶段不再负责重排
 
 ### 4.2 Dataset
 
@@ -177,8 +188,11 @@ eval / infer 时：
 ```text
 Detect all arrows and output only a JSON array, with no markdown and no extra text.
 Normalize every coordinate to an integer in [0,999].
-Each item must be {"label":"arrow","bbox_2d":[x1,y1,x2,y2],"keypoints_2d":[[x,y],[x,y]]}.
-Keypoints must be ordered from tail to head, and each arrow must contain at least 2 points.
+Each item must be either {"label":"single_arrow","bbox_2d":[x1,y1,x2,y2],"keypoints_2d":[[x,y],[x,y]]}
+or {"label":"double_arrow","bbox_2d":[x1,y1,x2,y2],"keypoints_2d":[[x,y],[x,y]]}.
+For single_arrow, keypoints are ordered from tail to head.
+For double_arrow, keypoints[0] and keypoints[-1] are the two head tips.
+Each arrow must contain at least 2 points.
 ```
 
 ## 6. 当前命名
@@ -208,7 +222,7 @@ Keypoints must be ordered from tail to head, and each arrow must contain at leas
 
 - 从任意文本里提取第一个平衡 JSON
 - 允许单 object 而不是 array
-- 缺 `label` 时默认补 `"arrow"`
+- 要求显式 `label`，但 lenient 仍允许从非纯净文本中抽出 JSON
 - 坐标做 `float -> int(round)`
 
 这意味着：

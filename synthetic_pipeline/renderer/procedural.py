@@ -3,19 +3,17 @@ from __future__ import annotations
 import random
 from typing import Any
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
 from synthetic_pipeline.renderer.common import (
     arrow_bbox,
+    default_arrow_style,
     degrade_image,
-    draw_arrow,
-    draw_distractors,
-    draw_occluders,
     make_background,
-    sample_arrow_style,
     sample_occluders,
     scene_style_config,
 )
+from synthetic_pipeline.renderer.svg import SvgCanvas, draw_distractors_svg, draw_occluders_svg
 from synthetic_pipeline.scene_sampler import clamp
 from synthetic_pipeline.schema import SyntheticSample
 
@@ -30,48 +28,46 @@ class ProceduralRenderer:
         scene = sample.scene
         style_cfg = scene_style_config(self.cfg["style"], scene.scene_mode)
         image = make_background(scene.image_width, scene.image_height, style_cfg, rng)
-        draw = ImageDraw.Draw(image)
-        draw_distractors(draw, scene.image_width, scene.image_height, style_cfg, rng)
+        canvas = SvgCanvas(scene.image_width, scene.image_height)
+        draw_distractors_svg(canvas, scene.image_width, scene.image_height, style_cfg, rng)
+        arrow_style = default_arrow_style(scene.image_width, scene.image_height)
 
-        style_profiles: dict[str, int] = {}
         for instance in sample.instances:
-            style = sample_arrow_style(style_cfg, rng)
-            style["geometry_mode"] = instance.meta.get("geometry_mode", "polyline")
-            self._render_instance(draw, scene.image_width, scene.image_height, instance, style, rng)
-            style_profiles[style["style_profile"]] = style_profiles.get(style["style_profile"], 0) + 1
+            self._render_instance(canvas, scene.image_width, scene.image_height, instance, arrow_style)
 
         occluders = sample_occluders(scene.image_width, scene.image_height, style_cfg, rng)
-        draw_occluders(draw, occluders, rng)
+        draw_occluders_svg(canvas, occluders, rng)
+        image = self._composite_overlay(image, canvas.rasterize())
         image = degrade_image(image, style_cfg, rng)
         return image, {
             "renderer": self.name,
             "num_occluders": len(occluders),
-            "style_profiles": style_profiles,
             "asset_backed_background": False,
+            "vector_backend": "svg",
         }
 
     @staticmethod
+    def _composite_overlay(base_image: Image.Image, overlay: Image.Image) -> Image.Image:
+        composed = base_image.convert("RGBA")
+        composed.alpha_composite(overlay)
+        return composed.convert("RGB")
+
+    @staticmethod
     def _render_instance(
-        draw: ImageDraw.ImageDraw,
+        canvas: SvgCanvas,
         width: int,
         height: int,
         instance,
         style: dict[str, Any],
-        rng: random.Random,
     ) -> None:
         points = [(float(point[0]), float(point[1])) for point in instance.keypoints]
-        draw_arrow(
-            draw=draw,
+        canvas.add_arrow(
             points=points,
             line_width=int(style["line_width"]),
             head_len=int(style["head_len"]),
             head_width=int(style["head_width"]),
             color=tuple(style["color"]),
-            head_style=str(style["head_style"]),
-            line_style=str(style["line_style"]),
-            render_style=str(style["render_style"]),
-            rng=rng,
-            geometry_mode=str(style.get("geometry_mode", "polyline")),
+            double_headed=instance.label == "double_arrow",
         )
         render_box = arrow_bbox(instance.keypoints, int(style["line_width"]), int(style["head_len"]), int(style["head_width"]))
         instance.render_bbox = [
@@ -80,15 +76,3 @@ class ProceduralRenderer:
             round(clamp(render_box[2], 0, width - 1), 2),
             round(clamp(render_box[3], 0, height - 1), 2),
         ]
-        instance.meta.update(
-            {
-                "style_profile": style["style_profile"],
-                "line_width": int(style["line_width"]),
-                "head_len": int(style["head_len"]),
-                "head_width": int(style["head_width"]),
-                "line_style": str(style["line_style"]),
-                "head_style": str(style["head_style"]),
-                "render_style": str(style["render_style"]),
-                "color": list(style["color"]),
-            }
-        )

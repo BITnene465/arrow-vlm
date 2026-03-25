@@ -5,7 +5,14 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from vlm_det.protocol.schema import ArrowAnnotation, ArrowInstance, ArrowPoint, annotation_from_dict, annotation_to_dict
+from vlm_det.protocol.schema import (
+    ARROW_LABELS,
+    ArrowAnnotation,
+    ArrowInstance,
+    ArrowPoint,
+    annotation_from_dict,
+    annotation_to_dict,
+)
 
 JSON_FENCE_PATTERN = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 
@@ -43,7 +50,7 @@ class ArrowCodec:
             ]
             payload.append(
                 {
-                    "label": "arrow",
+                    "label": instance.label,
                     "bbox_2d": bbox,
                     "keypoints_2d": points,
                 }
@@ -70,11 +77,15 @@ class ArrowCodec:
         for item_index, item in enumerate(payload):
             if not isinstance(item, dict):
                 raise ValueError(f"Item at index {item_index} must be a JSON object.")
-            if strict and "label" not in item:
-                raise ValueError(f"Item at index {item_index} must explicitly contain label='arrow'.")
-            label = item.get("label", "arrow")
-            if label != "arrow":
-                raise ValueError(f"Item at index {item_index} must have label='arrow'.")
+            if "label" not in item:
+                raise ValueError(
+                    f"Item at index {item_index} must explicitly contain label in {sorted(ARROW_LABELS)}."
+                )
+            label = item["label"]
+            if label not in ARROW_LABELS:
+                raise ValueError(
+                    f"Item at index {item_index} must have label in {sorted(ARROW_LABELS)}."
+                )
             bbox_values = item.get("bbox_2d")
             if not isinstance(bbox_values, list) or len(bbox_values) != 4:
                 raise ValueError(f"Item at index {item_index} must contain bbox_2d with 4 values.")
@@ -102,7 +113,7 @@ class ArrowCodec:
                         y=self._dequantize(y_value, image_height),
                     )
                 )
-            annotation.instances.append(ArrowInstance(bbox=bbox, keypoints=keypoints))
+            annotation.instances.append(ArrowInstance(label=label, bbox=bbox, keypoints=keypoints))
 
         report = self.validate_struct(annotation, strict=strict)
         if not report.valid:
@@ -118,6 +129,8 @@ class ArrowCodec:
         annotation = gt_struct if isinstance(gt_struct, ArrowAnnotation) else annotation_from_dict(gt_struct)
         errors: list[str] = []
         for index, instance in enumerate(annotation.instances):
+            if instance.label not in ARROW_LABELS:
+                errors.append(f"instance[{index}] label must be one of {sorted(ARROW_LABELS)}")
             if len(instance.bbox) != 4:
                 errors.append(f"instance[{index}] bbox length must be 4")
             elif strict:

@@ -8,13 +8,24 @@ from typing import Any
 
 from PIL import Image
 
-from vlm_det.data.ordering import sort_instances_canonical
+from vlm_det.data.ordering import normalize_instance_keypoint_order, sort_instances_canonical
 from vlm_det.utils.io import write_json, write_jsonl
 
 # Some paper figures are extremely large. During data preparation we only need
 # image metadata such as width/height, so disable Pillow's decompression bomb
 # guard here to avoid aborting on legitimate oversized figures.
 Image.MAX_IMAGE_PIXELS = None
+
+RECTANGLE_LABEL_TO_ARROW_LABEL = {
+    "c0": "single_arrow",
+    "c1": "single_arrow",
+    "c2": "single_arrow",
+    "c3": "single_arrow",
+    "c4": "double_arrow",
+    "c5": "double_arrow",
+    "c6": "double_arrow",
+    "c7": "double_arrow",
+}
 
 
 def _clip(value: float, lower: float, upper: float) -> float:
@@ -70,6 +81,11 @@ def _normalize_sample(json_path: Path, image_dir: Path, stats: Counter) -> dict[
             continue
 
         bbox_points = rectangles[0]["points"]
+        rectangle_label = str(rectangles[0].get("label", "")).strip()
+        arrow_label = RECTANGLE_LABEL_TO_ARROW_LABEL.get(rectangle_label)
+        if arrow_label is None:
+            stats["instances_dropped_unknown_rectangle_label"] += 1
+            continue
         raw_bbox = _shape_to_bbox(bbox_points)
         bbox = [
             _clip(raw_bbox[0], 0.0, width - 1),
@@ -92,10 +108,13 @@ def _normalize_sample(json_path: Path, image_dir: Path, stats: Counter) -> dict[
                 ]
             )
         instances.append(
-            {
-                "bbox": bbox,
-                "keypoints": keypoints,
-            }
+            normalize_instance_keypoint_order(
+                {
+                    "label": arrow_label,
+                    "bbox": bbox,
+                    "keypoints": keypoints,
+                }
+            )
         )
         stats["instances_kept"] += 1
 

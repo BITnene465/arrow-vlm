@@ -48,9 +48,11 @@ class PromptConfig:
     user_prompt: str = (
         "Detect all arrows and output only a JSON array, with no markdown and no extra text. "
         "Normalize every coordinate to an integer in [0,999]. "
-        "Each item must be "
-        '{"label":"arrow","bbox_2d":[x1,y1,x2,y2],"keypoints_2d":[[x,y],[x,y]]}. '
-        "Keypoints must be ordered from tail to head, and each arrow must contain at least 2 points."
+        'Each item must be either {"label":"single_arrow","bbox_2d":[x1,y1,x2,y2],"keypoints_2d":[[x,y],[x,y]]} '
+        'or {"label":"double_arrow","bbox_2d":[x1,y1,x2,y2],"keypoints_2d":[[x,y],[x,y]]}. '
+        "For single_arrow, keypoints must be ordered from tail to head. "
+        "For double_arrow, keypoints[0] and keypoints[-1] are the two head tips. "
+        "Each arrow must contain at least 2 points."
     )
 
 

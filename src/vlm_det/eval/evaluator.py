@@ -274,6 +274,8 @@ class ArrowEvaluator:
         for gt_index, gt_instance in enumerate(gt_instances):
             row: list[tuple[int, float]] = []
             for pred_index, pred_instance in enumerate(pred_instances):
+                if gt_instance.get("label") != pred_instance.get("label"):
+                    continue
                 iou_value = self._bbox_iou(gt_instance["bbox"], pred_instance["bbox"])
                 if iou_value >= self.bbox_iou_threshold:
                     row.append((pred_index, iou_value))
