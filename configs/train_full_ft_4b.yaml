@@ -1,0 +1,93 @@
+experiment:
+  name: qwen3vl-ft
+  output_dir: outputs/qwen3vl-ft
+  seed: 42
+
+model:
+  # 默认优先使用本地 models 目录中的模型；若本地不存在，再回退到远端仓库 ID。
+  model_name_or_path: models/Qwen3-VL-4B-Instruct
+  remote_model_name_or_path: Qwen/Qwen3-VL-4B-Instruct
+  trust_remote_code: true
+  attn_implementation: flash_attention_2
+  freeze_vision_tower: true
+  vision_name_substrings:
+    - visual
+  projector_name_substrings:
+    - merger
+    - projector
+    - multi_modal_projector
+  # 受控动态分辨率，而不是原生大图直接输入。
+  # full FT 对显存更敏感，默认也收紧到 1024 x 1024 上限。
+  min_pixels: 200704
+  # 1024 x 1024 total pixel budget: 1,048,576
+  max_pixels: 1048576
+
+tokenizer:
+  # grounding 坐标统一归一化到 0~999 的整数网格
+  num_bins: 1000
+  add_eos_token: true
+
+prompt:
+  system_prompt: ""
+  user_prompt: |
+    Detect all arrows and output only a JSON array, with no markdown and no extra text.
+    Normalize every coordinate to an integer in [0,999].
+    Each item must be either {"label":"single_arrow","bbox_2d":[x1,y1,x2,y2],"keypoints_2d":[[x,y],[x,y]]}
+    or {"label":"double_arrow","bbox_2d":[x1,y1,x2,y2],"keypoints_2d":[[x,y],[x,y]]}.
+    For single_arrow, keypoints must be ordered from tail to head.
+    For double_arrow, keypoints[0] and keypoints[-1] are the two head tips.
+    Each arrow must contain at least 2 points.
+
+data:
+  train_path: data/processed/train.jsonl
+  val_path: data/processed/val.jsonl
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: true
+
+finetune:
+  # full finetune（若 freeze_vision_tower=true，则视觉塔仍冻结）
+  mode: full
+
+train:
+  epochs: 3
+  per_device_batch_size: 2
+  grad_accum_steps: 2
+  gradient_checkpointing: true
+  learning_rate: 0.00002
+  embed_learning_rate: 0.00002
+  lm_head_learning_rate: 0.00002
+  weight_decay: 0.01
+  warmup_ratio: 0.1
+  scheduler_type: cosine
+  max_grad_norm: 1.0
+  bf16: true
+  eval_strategy: epoch
+  eval_start_epoch: 1
+  log_every_steps: 10
+  eval_every_steps: 200
+  save_every_steps: 200
+  save_step_checkpoints: false
+  keep_last_n_checkpoints: 3
+  find_unused_parameters: false
+
+eval:
+  per_device_batch_size: 8
+  max_new_tokens: 2048
+  num_beams: 1
+  do_sample: false
+  use_cache: true
+  bbox_iou_threshold: 0.5
+  strict_point_distance_px: 8.0
+  monitor_metric: val/end_to_end_score
+  monitor_mode: max
+
+logging:
+  use_wandb: true
+  project: vlm_det_json
+  run_name: qwen3vl-ft
+  progress_ncols: 88
+
+checkpoint:
+  init_from: null
+  resume_from: null
