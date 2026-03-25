@@ -40,7 +40,7 @@
 - 对 `single_arrow`：`keypoints_2d[0]` = 箭头尾部中心线点
 - 对 `single_arrow`：`keypoints_2d[-1]` = 箭头头部尖点
 - 对 `double_arrow`：`keypoints_2d[0]` 与 `keypoints_2d[-1]` 是两端头部尖点
-- 对 `double_arrow`：顺序固定为左侧 head 在前，右侧 head 在后；若 `x` 相同，则更靠上的点在前
+- 对 `double_arrow`：顺序固定为左上的 head 在前，另一个 head 在后；若 `x` 相同，则更靠上的点在前
 - 中间 keypoints = 路径控制点 / 折点，不是箭头头部两侧角点
 - 每个箭头至少 2 个 keypoints
 
@@ -91,9 +91,9 @@ python scripts/prepare_data.py \
 - `keypoints` 语义和最终协议一致
 - `c0~c3` -> `single_arrow`
 - `c4~c7` -> `double_arrow`
-- `double_arrow` 会在落盘前统一重排成“左 head 在前，右 head 在后”
+- `double_arrow` 会在落盘前统一重排成“左上的 head 为起点，另一个 head 为终点”
 - 最终写入 JSONL 前，会先对图内 `instances` 做 canonical 排序：
-  `(y1, x1, y2, x2, y_first, x_first, y_last, x_last, n_points)`
+  `(y1, x1, y2, x2, y_tail, x_tail, y_head, x_head, n_points)`
 - 这条排序规则在真实数据 prepare 和 synthetic export 两侧都要执行，
   dataset 读取阶段不再负责重排
 

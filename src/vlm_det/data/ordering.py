@@ -20,6 +20,8 @@ def normalize_keypoints_for_label(label: str, keypoints: list[Any]) -> list[Any]
         return list(keypoints)
     first_x, first_y = _point_xy(keypoints[0])
     last_x, last_y = _point_xy(keypoints[-1])
+    # Double-arrow endpoints are canonicalized so the upper-left head comes
+    # first. If x ties, use y as a stable top-to-bottom tie-breaker.
     if (first_x, first_y) <= (last_x, last_y):
         return list(keypoints)
     return list(reversed(keypoints))
@@ -34,11 +36,9 @@ def canonical_instance_sort_key(instance: Any) -> tuple[float, ...]:
     x2 = float(bbox[2])
     y2 = float(bbox[3])
 
-    if keypoints:
-        tail_x, tail_y = _point_xy(keypoints[0])
-        head_x, head_y = _point_xy(keypoints[-1])
-    else:
-        tail_x = tail_y = head_x = head_y = float("inf")
+    tail_x, tail_y = _point_xy(keypoints[0])
+    head_x, head_y = _point_xy(keypoints[-1])
+    n_points = float(len(keypoints))
 
     return (
         y1,
@@ -49,7 +49,7 @@ def canonical_instance_sort_key(instance: Any) -> tuple[float, ...]:
         tail_x,
         head_y,
         head_x,
-        float(len(keypoints)),
+        n_points,
     )
 
 
