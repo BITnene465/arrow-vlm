@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from vlm_det.config import load_config
+from vlm_det.config import apply_run_id, load_config
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +23,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--stage1-config", default="configs/train_sync_posttrain.yaml")
     parser.add_argument("--stage2-config", default="configs/train_full_ft.yaml")
+    parser.add_argument("--run-id", default=None)
     parser.add_argument("--stage1-checkpoint-tag", choices=["best", "last"], default="best")
     parser.add_argument(
         "--stage1-checkpoint-dir",
@@ -61,10 +62,14 @@ def _resolve_checkpoint_dir(
     stage1_config_path: str,
     stage1_checkpoint_dir: str | None,
     stage1_checkpoint_tag: str,
+    run_id: str | None,
+    stage_name: str | None,
 ) -> Path:
     if stage1_checkpoint_dir is not None:
         return Path(stage1_checkpoint_dir)
     config = load_config(stage1_config_path)
+    if run_id:
+        config = apply_run_id(config, run_id, stage_name=stage_name)
     return Path(config.experiment.output_dir) / "checkpoints" / stage1_checkpoint_tag
 
 
@@ -73,10 +78,16 @@ def _build_stage_command(
     runner_prefix: list[str],
     train_entrypoint: str,
     config_path: str,
+    run_id: str | None = None,
+    stage_name: str | None = None,
     init_from: str | None = None,
     resume_from: str | None = None,
 ) -> list[str]:
     command = [*runner_prefix, train_entrypoint, "--config", config_path]
+    if run_id:
+        command.extend(["--run-id", run_id])
+    if stage_name:
+        command.extend(["--stage-name", stage_name])
     if init_from:
         command.extend(["--init-from", init_from])
     if resume_from:
@@ -99,10 +110,14 @@ def _run_or_print(label: str, command: list[str], *, dry_run: bool) -> None:
 def main() -> None:
     args = parse_args()
     runner_prefix = _resolve_runner_prefix(args.runner)
+    stage1_name = "stage1_sync_posttrain"
+    stage2_name = "stage2_real_sft"
     stage1_checkpoint_dir = _resolve_checkpoint_dir(
         stage1_config_path=args.stage1_config,
         stage1_checkpoint_dir=args.stage1_checkpoint_dir,
         stage1_checkpoint_tag=args.stage1_checkpoint_tag,
+        run_id=args.run_id,
+        stage_name=stage1_name,
     )
 
     if not args.skip_stage1:
@@ -110,6 +125,8 @@ def main() -> None:
             runner_prefix=runner_prefix,
             train_entrypoint=args.train_entrypoint,
             config_path=args.stage1_config,
+            run_id=args.run_id,
+            stage_name=stage1_name if args.run_id else None,
             init_from=args.stage1_init_from,
             resume_from=args.stage1_resume_from,
         )
@@ -125,6 +142,8 @@ def main() -> None:
         runner_prefix=runner_prefix,
         train_entrypoint=args.train_entrypoint,
         config_path=args.stage2_config,
+        run_id=args.run_id,
+        stage_name=stage2_name if args.run_id else None,
         init_from=None if args.stage2_resume_from else str(stage1_checkpoint_dir),
         resume_from=args.stage2_resume_from,
     )

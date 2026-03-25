@@ -7,7 +7,7 @@ import math
 import torch
 from torch.utils.data import DataLoader, DistributedSampler
 
-from vlm_det.config import load_config, config_to_dict
+from vlm_det.config import apply_run_id, load_config, config_to_dict
 from vlm_det.data.collator import ArrowSFTCollator
 from vlm_det.data.dataset import ArrowSFTDataset
 from vlm_det.eval.evaluator import ArrowEvaluator
@@ -22,6 +22,8 @@ from vlm_det.utils.logging import ExperimentLogger, format_count
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train Qwen3-VL on arrow grounding and keypoint prediction.")
     parser.add_argument("--config", required=True)
+    parser.add_argument("--run-id", default=None)
+    parser.add_argument("--stage-name", default=None)
     parser.add_argument("--init-from", default=None)
     parser.add_argument("--resume-from", default=None)
     return parser.parse_args()
@@ -47,6 +49,14 @@ def main() -> None:
     args = parse_args()
     print("[startup] loading config...", flush=True)
     config = load_config(args.config)
+    if args.run_id:
+        config = apply_run_id(config, args.run_id, stage_name=args.stage_name)
+        print(
+            f"[startup] applied run_id={args.run_id!r} "
+            f"stage_name={args.stage_name!r} "
+            f"output_dir={config.experiment.output_dir}",
+            flush=True,
+        )
     dist_ctx = init_distributed()
     seed_everything(config.experiment.seed, rank=dist_ctx.rank)
 

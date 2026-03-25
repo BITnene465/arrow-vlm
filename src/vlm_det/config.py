@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import Any, TypeVar, get_args, get_origin, get_type_hints
@@ -267,3 +268,39 @@ def load_config(path: str | Path) -> ExperimentRuntimeConfig:
 
 def config_to_dict(config: ExperimentRuntimeConfig) -> dict[str, Any]:
     return asdict(config)
+
+
+def apply_run_id(
+    config: ExperimentRuntimeConfig,
+    run_id: str,
+    *,
+    stage_name: str | None = None,
+) -> ExperimentRuntimeConfig:
+    normalized_run_id = _normalize_run_component(run_id, field_name="run_id")
+    normalized_stage_name = None
+    if stage_name is not None:
+        normalized_stage_name = _normalize_run_component(stage_name, field_name="stage_name")
+
+    base_experiment_name = config.experiment.name
+    base_output_dir = Path(config.experiment.output_dir)
+    base_run_name = config.logging.run_name or base_experiment_name
+
+    if normalized_stage_name is None:
+        suffix = normalized_run_id
+        output_dir = base_output_dir / normalized_run_id
+    else:
+        suffix = f"{normalized_run_id}-{normalized_stage_name}"
+        output_dir = base_output_dir / normalized_run_id / normalized_stage_name
+
+    config.experiment.name = f"{base_experiment_name}-{suffix}"
+    config.experiment.output_dir = str(output_dir)
+    config.logging.run_name = f"{base_run_name}-{suffix}"
+    return config
+
+
+def _normalize_run_component(value: str, *, field_name: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip())
+    normalized = normalized.strip(".-")
+    if not normalized:
+        raise ValueError(f"{field_name} must contain at least one alphanumeric character.")
+    return normalized

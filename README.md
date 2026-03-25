@@ -155,6 +155,14 @@ Those files are directly consumable by the existing training stack.
 python scripts/train.py --config configs/train_lora.yaml
 ```
 
+Add a run id to make the output directory and W&B run traceable:
+
+```bash
+python scripts/train.py \
+  --config configs/train_lora.yaml \
+  --run-id 20260325-exp01
+```
+
 ### Single-GPU Full Fine-Tuning
 
 ```bash
@@ -200,6 +208,7 @@ Run synthetic post-train first, then launch real-data SFT from the stage-1 check
 
 ```bash
 python scripts/train_two_stage.py \
+  --run-id 20260325-exp01 \
   --stage1-config configs/train_sync_posttrain.yaml \
   --stage2-config configs/train_full_ft.yaml
 ```
@@ -208,6 +217,7 @@ Use LoRA for stage 2 if needed:
 
 ```bash
 python scripts/train_two_stage.py \
+  --run-id 20260325-exp01 \
   --stage1-config configs/train_sync_posttrain.yaml \
   --stage2-config configs/train_lora.yaml
 ```
@@ -216,6 +226,13 @@ Preview commands without starting training:
 
 ```bash
 python scripts/train_two_stage.py --dry-run
+```
+
+With `--run-id`, the two stages are separated automatically, for example:
+
+```text
+outputs/qwen3_vl_json_sync_posttrain_ft/20260325-exp01/stage1_sync_posttrain
+outputs/qwen3_vl_json_full_ft/20260325-exp01/stage2_real_sft
 ```
 
 Use multi-GPU launchers for both stages:
