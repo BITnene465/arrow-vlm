@@ -69,7 +69,8 @@ def _normalize_sample(json_path: Path, image_dir: Path, stats: Counter) -> dict[
             stats["instances_dropped_too_few_points"] += 1
             continue
 
-        raw_bbox = _shape_to_bbox(rectangles[0]["points"])
+        bbox_points = rectangles[0]["points"]
+        raw_bbox = _shape_to_bbox(bbox_points)
         bbox = [
             _clip(raw_bbox[0], 0.0, width - 1),
             _clip(raw_bbox[1], 0.0, height - 1),
@@ -80,12 +81,10 @@ def _normalize_sample(json_path: Path, image_dir: Path, stats: Counter) -> dict[
             stats["instances_dropped_invalid_bbox"] += 1
             continue
 
-        raw_keypoints = []
         keypoints = []
         for point in points:
             x_value = float(point["points"][0][0])
             y_value = float(point["points"][0][1])
-            raw_keypoints.append([x_value, y_value])
             keypoints.append(
                 [
                     _clip(x_value, 0.0, width - 1),
@@ -96,9 +95,6 @@ def _normalize_sample(json_path: Path, image_dir: Path, stats: Counter) -> dict[
             {
                 "bbox": bbox,
                 "keypoints": keypoints,
-                "group_id": group_id,
-                "raw_bbox": raw_bbox,
-                "raw_keypoints": raw_keypoints,
             }
         )
         stats["instances_kept"] += 1

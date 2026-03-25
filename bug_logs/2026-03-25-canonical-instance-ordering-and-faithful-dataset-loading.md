@@ -12,7 +12,7 @@
 
 1. `prepare.py` 会基于 `p1/p2/1/2` 标签处理真实数据点顺序
 2. `dataset.py` 会在训练时随机打乱单张图内部的 `instances`
-3. dataset 还会把 `group_id/raw_bbox/raw_keypoints` 这类训练无关字段继续带入 `gt_struct`
+3. processed JSONL 里还保留 `group_id/raw_bbox/raw_keypoints` 这类训练无关字段，dataset 还会继续把它们带入 `gt_struct`
 
 这些逻辑混在一起后，职责边界不清晰：
 
@@ -102,7 +102,8 @@
 - 移除 `shuffle_instances_for_training`
 - 移除 dataset 内部 `random.shuffle(instances)`
 - 移除 dataset 不必要的 `deepcopy`
-- dataset 不再把 `group_id/raw_bbox/raw_keypoints` 混入训练 `gt_struct`
+- processed JSONL 不再保留 `group_id/raw_bbox/raw_keypoints`
+- dataset 不再把这类训练无关字段混入训练 `gt_struct`
 
 保留下来的只有：
 

@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
-
-
 @dataclass
 class ArrowPoint:
     x: float
@@ -14,9 +11,6 @@ class ArrowPoint:
 class ArrowInstance:
     bbox: list[float]
     keypoints: list[ArrowPoint]
-    group_id: int | None = None
-    raw_bbox: list[float] | None = None
-    raw_keypoints: list[list[Any]] | None = None
 
 
 @dataclass
@@ -34,9 +28,6 @@ def annotation_from_dict(payload: dict[str, Any]) -> ArrowAnnotation:
             ArrowInstance(
                 bbox=[float(value) for value in item.get("bbox", [])],
                 keypoints=keypoints,
-                group_id=item.get("group_id"),
-                raw_bbox=item.get("raw_bbox"),
-                raw_keypoints=item.get("raw_keypoints"),
             )
         )
     return ArrowAnnotation(instances=instances)
@@ -50,13 +41,6 @@ def annotation_to_dict(annotation: ArrowAnnotation) -> dict[str, Any]:
                 "keypoints": [
                     [point.x, point.y] for point in instance.keypoints
                 ],
-                **({"group_id": instance.group_id} if instance.group_id is not None else {}),
-                **({"raw_bbox": instance.raw_bbox} if instance.raw_bbox is not None else {}),
-                **(
-                    {"raw_keypoints": instance.raw_keypoints}
-                    if instance.raw_keypoints is not None
-                    else {}
-                ),
             }
             for instance in annotation.instances
         ]
