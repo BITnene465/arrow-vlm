@@ -60,7 +60,6 @@ def main() -> None:
                 f"generated_tokens={generation['generated_tokens']}",
                 f"returned_tokens={generation['returned_tokens']}",
                 f"stop_reason={generation['stop_reason']}",
-                f"saw_eos={generation['saw_eos']}",
                 f"closed_json_array={generation['closed_json_array']}",
                 f"hit_max_new_tokens={generation['hit_max_new_tokens']}",
             ]

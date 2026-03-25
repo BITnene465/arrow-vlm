@@ -17,7 +17,6 @@ from vlm_det.utils.generation import (
     build_generate_kwargs,
     build_json_array_stopping_criteria,
     find_balanced_json_array_end,
-    normalize_eos_token_ids,
     trim_generated_ids_at_eos,
 )
 
@@ -73,12 +72,9 @@ class ArrowInferenceRunner:
         trimmed_ids = trim_generated_ids_at_eos(continuation, generate_kwargs.get("eos_token_id"))
         decoded = self.artifacts.tokenizer.decode(trimmed_ids, skip_special_tokens=False)
         strict_text = self.artifacts.tokenizer.decode(trimmed_ids, skip_special_tokens=True)
-        eos_token_id = normalize_eos_token_ids(generate_kwargs.get("eos_token_id"))
-        eos_ids = {eos_token_id} if isinstance(eos_token_id, int) else set(eos_token_id or [])
-        saw_eos = any(int(token_id) in eos_ids for token_id in continuation_ids)
         closed_json_array = json_array_end is not None
         hit_max_new_tokens = len(continuation_ids) >= requested_max_new_tokens
-        if closed_json_array and not saw_eos:
+        if closed_json_array:
             decoded = raw_continuation_text[:json_array_end]
             strict_text = decoded
 
@@ -109,13 +105,10 @@ class ArrowInferenceRunner:
                 "generated_tokens": len(continuation_ids),
                 "returned_tokens": len(trimmed_ids),
                 "hit_max_new_tokens": hit_max_new_tokens,
-                "saw_eos": saw_eos,
                 "closed_json_array": closed_json_array,
                 "stop_reason": (
                     "json_array_closed"
                     if closed_json_array
-                    else "eos"
-                    if saw_eos
                     else "max_new_tokens"
                     if hit_max_new_tokens
                     else "unknown"

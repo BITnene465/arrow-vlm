@@ -286,10 +286,6 @@ def _render_status_panel(
         <span class="status-value">{generation["stop_reason"]}</span>
       </div>
       <div class="status-card">
-        <span class="status-label">Saw EOS</span>
-        <span class="status-value">{'<span class="badge ok">YES</span>' if generation["saw_eos"] else '<span class="badge fail">NO</span>'}</span>
-      </div>
-      <div class="status-card">
         <span class="status-label">JSON Closed</span>
         <span class="status-value">{'<span class="badge ok">YES</span>' if generation["closed_json_array"] else '<span class="badge fail">NO</span>'}</span>
       </div>
@@ -313,9 +309,12 @@ def build_demo(runner, *, default_max_new_tokens: int | None = None):
 
     effective_default_max_new_tokens = default_max_new_tokens or runner.config.eval.max_new_tokens
 
-    def predict(image: Image.Image | None, max_new_tokens: int) -> tuple[Image.Image | None, str, str, str]:
+    def _gallery_items(image: Image.Image | None) -> list[Image.Image]:
+        return [image] if image is not None else []
+
+    def predict(image: Image.Image | None, max_new_tokens: int) -> tuple[list[Image.Image], str, str, str]:
         if image is None:
-            return None, "<div class='error-strip'>No image provided.</div>", "", ""
+            return [], "<div class='error-strip'>No image provided.</div>", "", ""
 
         raw_text, parse_report = runner.predict(image, max_new_tokens=max_new_tokens)
         strict_prediction = parse_report["strict"]["prediction"]
@@ -328,7 +327,7 @@ def build_demo(runner, *, default_max_new_tokens: int | None = None):
             rendered = image
 
         status_html = _render_status_panel(parse_report, max_new_tokens=max_new_tokens)
-        return rendered, status_html, raw_text, json.dumps(parse_report, ensure_ascii=False, indent=2)
+        return [rendered], status_html, raw_text, json.dumps(parse_report, ensure_ascii=False, indent=2)
 
     meta_html = f"""
     <div class="hero-panel">
@@ -365,7 +364,23 @@ def build_demo(runner, *, default_max_new_tokens: int | None = None):
                         </div>
                         """
                     )
-                    image_input = gr.Image(type="pil", label="Input Figure", elem_id="input-image")
+                    image_input = gr.Image(
+                        type="pil",
+                        label="Upload Figure",
+                        elem_id="input-upload",
+                        sources=["upload", "clipboard"],
+                    )
+                    input_preview = gr.Gallery(
+                        label="Input Preview",
+                        elem_id="input-image",
+                        columns=1,
+                        rows=1,
+                        object_fit="contain",
+                        allow_preview=True,
+                        preview=True,
+                        buttons=["fullscreen", "download"],
+                        height=360,
+                    )
                     max_new_tokens_input = gr.Slider(
                         label="Max New Tokens",
                         minimum=256,
@@ -376,10 +391,16 @@ def build_demo(runner, *, default_max_new_tokens: int | None = None):
                     with gr.Row():
                         run_button = gr.Button("Run Inference", elem_id="run-button")
                 with gr.Column(scale=6):
-                    image_output = gr.Image(
-                        type="pil",
+                    image_output = gr.Gallery(
                         label="Prediction Overlay",
                         elem_id="output-image",
+                        columns=1,
+                        rows=1,
+                        object_fit="contain",
+                        allow_preview=True,
+                        preview=True,
+                        buttons=["fullscreen", "download"],
+                        height=520,
                     )
                     with gr.Group(elem_id="status-panel", elem_classes=["surface-panel"]):
                         gr.HTML(
@@ -401,11 +422,16 @@ def build_demo(runner, *, default_max_new_tokens: int | None = None):
                 with gr.Tab("Parse Report"):
                     parse_output = gr.Code(label="Parse Report", language="json", elem_id="parse-output")
             clear_button = gr.ClearButton(
-                [image_input, image_output, status_output, raw_output, parse_output],
+                [image_input, input_preview, image_output, status_output, raw_output, parse_output],
                 value="Clear",
                 elem_id="clear-button",
             )
 
+        image_input.change(
+            fn=_gallery_items,
+            inputs=image_input,
+            outputs=input_preview,
+        )
         run_button.click(
             fn=predict,
             inputs=[image_input, max_new_tokens_input],
