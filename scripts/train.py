@@ -19,11 +19,21 @@ from vlm_det.utils.distributed import barrier, cleanup_distributed, init_distrib
 from vlm_det.utils.logging import ExperimentLogger, format_count
 
 
+def _parse_bool_flag(value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise argparse.ArgumentTypeError(f"Expected a boolean value, got: {value!r}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train Qwen3-VL on arrow grounding and keypoint prediction.")
     parser.add_argument("--config", required=True)
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--stage-name", default=None)
+    parser.add_argument("--freeze-vision-tower", type=_parse_bool_flag, default=None)
     parser.add_argument("--init-from", default=None)
     parser.add_argument("--resume-from", default=None)
     return parser.parse_args()
@@ -55,6 +65,12 @@ def main() -> None:
             f"[startup] applied run_id={args.run_id!r} "
             f"stage_name={args.stage_name!r} "
             f"output_dir={config.experiment.output_dir}",
+            flush=True,
+        )
+    if args.freeze_vision_tower is not None:
+        config.model.freeze_vision_tower = args.freeze_vision_tower
+        print(
+            f"[startup] override freeze_vision_tower={config.model.freeze_vision_tower}",
             flush=True,
         )
     dist_ctx = init_distributed()

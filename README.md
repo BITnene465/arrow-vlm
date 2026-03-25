@@ -163,6 +163,15 @@ python scripts/train.py \
   --run-id 20260325-exp01
 ```
 
+Override the vision-tower freezing behavior for one run:
+
+```bash
+python scripts/train.py \
+  --config configs/train_full_ft.yaml \
+  --run-id 20260325-exp01 \
+  --freeze-vision-tower false
+```
+
 ### Single-GPU Full Fine-Tuning
 
 ```bash
@@ -209,6 +218,8 @@ Run synthetic post-train first, then launch real-data SFT from the stage-1 check
 ```bash
 python scripts/train_two_stage.py \
   --run-id 20260325-exp01 \
+  --stage1-freeze-vision-tower false \
+  --stage2-freeze-vision-tower true \
   --stage1-config configs/train_sync_posttrain.yaml \
   --stage2-config configs/train_full_ft.yaml
 ```
