@@ -279,29 +279,67 @@ The default prompt asks the model to:
 
 ## Inference
 
-Run single-image inference:
+Create a local `.env` from the template and fill at least the checkpoint path:
 
 ```bash
-python scripts/infer.py \
-  --config configs/train_lora.yaml \
-  --checkpoint outputs/your_experiment/checkpoints/best \
-  --image /path/to/figure.jpg
+cp .env.example .env
 ```
 
-Optionally save parsed output:
+The inference CLI reads `.env` directly and does not require a training YAML:
 
 ```bash
 python scripts/infer.py \
-  --config configs/train_lora.yaml \
-  --checkpoint outputs/your_experiment/checkpoints/best \
-  --image /path/to/figure.jpg \
-  --output-dir outputs/infer_results
+  --image /path/to/figure.jpg
 ```
 
 This saves:
 
 - `*.prediction.json`
 - `*.raw.txt`
+
+if `INFER_OUTPUT_DIR` is set in `.env`, or if you pass `--output-dir`.
+
+Override the checkpoint or env file explicitly when needed:
+
+```bash
+python scripts/infer.py \
+  --checkpoint outputs/your_experiment/checkpoints/best \
+  --env-file /path/to/.env \
+  --image /path/to/figure.jpg \
+  --output-dir outputs/infer_results
+```
+
+The CLI also prints the raw decoded model text to stdout so you can inspect strict-vs-lenient parse failures directly.
+
+## App
+
+Launch the Gradio app with the same `.env` settings:
+
+```bash
+python app/demo.py
+```
+
+Useful inference/app env vars:
+
+- `CHECKPOINT_PATH`
+- `INFER_OUTPUT_DIR`
+- `INFER_DEVICE`
+- `APP_HOST`
+- `APP_PORT`
+- `APP_SHARE`
+
+Optional overrides only when needed:
+
+- `MODEL_NAME_OR_PATH`
+- `MODEL_MIN_PIXELS`
+- `MODEL_MAX_PIXELS`
+- `SYSTEM_PROMPT`
+- `USER_PROMPT`
+- `INFER_MAX_NEW_TOKENS`
+
+`infer.py` and `app/demo.py` share the same environment-driven loader. They fall back to `checkpoint/meta.json` for structure-sensitive settings such as `finetune.mode`, LoRA parameters, prompt defaults, and eval defaults, so you normally do not need a training config file during inference.
+
+Training configuration is separate: `scripts/train.py` only reads YAML config files and does not consume `.env`.
 
 ## Evaluation and Debugging
 

@@ -12,8 +12,9 @@ from vlm_det.infer.visualize import format_prediction_summary
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run greedy inference on one image.")
-    parser.add_argument("--config", required=True)
-    parser.add_argument("--checkpoint", required=True)
+    parser.add_argument("--config", default=None, help="Legacy training config path. Prefer environment-driven inference settings.")
+    parser.add_argument("--checkpoint", default=None, help="Checkpoint directory. Falls back to CHECKPOINT_PATH in .env.")
+    parser.add_argument("--env-file", default=None, help="Optional path to a .env file for inference/app settings.")
     parser.add_argument("--image", required=True)
     parser.add_argument("--output-dir", default=None, help="Optional directory to save parsed prediction files.")
     return parser.parse_args()
@@ -38,11 +39,17 @@ def main() -> None:
     args = parse_args()
     from vlm_det.infer.runner import load_inference_runner
 
-    runner = load_inference_runner(args.config, args.checkpoint)
+    runner = load_inference_runner(
+        checkpoint_path=args.checkpoint,
+        config_path=args.config,
+        env_file=args.env_file,
+    )
     image_path = Path(args.image)
     image = Image.open(image_path).convert("RGB")
     raw_text, parse_report = runner.predict(image)
     print(json.dumps(parse_report, ensure_ascii=False, indent=2))
+    print("\n[raw-output]")
+    print(raw_text)
 
     lenient_prediction = parse_report["lenient"]["prediction"]
     if lenient_prediction is not None:
@@ -58,8 +65,9 @@ def main() -> None:
             ]
         )
     )
-    if args.output_dir is not None:
-        prediction_path, raw_text_path = _save_outputs(Path(args.output_dir), image_path, raw_text, parse_report)
+    output_dir = args.output_dir or runner.settings.output_dir
+    if output_dir is not None:
+        prediction_path, raw_text_path = _save_outputs(Path(output_dir), image_path, raw_text, parse_report)
         print(f"Saved parsed prediction to: {prediction_path}")
         print(f"Saved raw output to: {raw_text_path}")
 

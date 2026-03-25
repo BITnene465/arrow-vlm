@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import Any, TypeVar, get_args, get_origin, get_type_hints
 
 import yaml
-from dotenv import load_dotenv
 
 
 @dataclass
@@ -158,17 +156,7 @@ class ExperimentRuntimeConfig:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)
 
-
 T = TypeVar("T")
-ENV_OVERRIDE_MAP: dict[str, tuple[str, callable]] = {
-    "VLM_DET_MODEL_NAME_OR_PATH": ("model.model_name_or_path", str),
-    "VLM_DET_REMOTE_MODEL_NAME_OR_PATH": ("model.remote_model_name_or_path", str),
-    "VLM_DET_MODEL_MIN_PIXELS": ("model.min_pixels", int),
-    "VLM_DET_MODEL_MAX_PIXELS": ("model.max_pixels", int),
-    "VLM_DET_OUTPUT_DIR": ("experiment.output_dir", str),
-    "VLM_DET_WANDB_PROJECT": ("logging.project", str),
-    "VLM_DET_USE_WANDB": ("logging.use_wandb", lambda value: value.lower() in {"1", "true", "yes", "on"}),
-}
 
 
 def _convert_value(value: Any, annotation: Any) -> Any:
@@ -207,39 +195,6 @@ def _from_dict(cls: type[T], data: dict[str, Any]) -> T:
     return cls(**kwargs)
 
 
-def _find_dotenv_path(config_path: Path) -> Path | None:
-    search_roots = [config_path.resolve(), Path.cwd().resolve()]
-    seen: set[Path] = set()
-    for root in search_roots:
-        for candidate in [root, *root.parents]:
-            if candidate in seen:
-                continue
-            seen.add(candidate)
-            dotenv_path = candidate / ".env"
-            if dotenv_path.exists():
-                return dotenv_path
-    return None
-
-
-def _set_nested_value(payload: dict[str, Any], dotted_path: str, value: Any) -> None:
-    parts = dotted_path.split(".")
-    current = payload
-    for part in parts[:-1]:
-        if part not in current or not isinstance(current[part], dict):
-            current[part] = {}
-        current = current[part]
-    current[parts[-1]] = value
-
-
-def _apply_env_overrides(payload: dict[str, Any]) -> dict[str, Any]:
-    for env_name, (target_path, caster) in ENV_OVERRIDE_MAP.items():
-        raw_value = os.getenv(env_name)
-        if raw_value is None or raw_value == "":
-            continue
-        _set_nested_value(payload, target_path, caster(raw_value))
-    return payload
-
-
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     merged = dict(base)
     for key, value in override.items():
@@ -256,14 +211,9 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 
 def load_config(path: str | Path) -> ExperimentRuntimeConfig:
     config_path = Path(path)
-    dotenv_path = _find_dotenv_path(config_path)
-    if dotenv_path is not None:
-        load_dotenv(dotenv_path=dotenv_path, override=False)
-    base_payload = _apply_env_overrides({})
     with config_path.open("r", encoding="utf-8") as handle:
         yaml_payload = yaml.safe_load(handle) or {}
-    merged_payload = _deep_merge(base_payload, yaml_payload)
-    return _from_dict(ExperimentRuntimeConfig, merged_payload)
+    return _from_dict(ExperimentRuntimeConfig, yaml_payload)
 
 
 def config_to_dict(config: ExperimentRuntimeConfig) -> dict[str, Any]:

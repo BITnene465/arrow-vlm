@@ -9,8 +9,8 @@ if [[ -f "$ROOT_DIR/.env" ]]; then
   set +a
 fi
 
-MODEL_ID="${MODEL_ID:-${VLM_DET_REMOTE_MODEL_NAME_OR_PATH:-Qwen/Qwen3-VL-2B-Instruct}}"
-LOCAL_DIR="${LOCAL_DIR:-$ROOT_DIR/${VLM_DET_MODEL_NAME_OR_PATH:-models/Qwen3-VL-2B-Instruct}}"
+MODEL_ID="${MODEL_ID:-Qwen/Qwen3-VL-2B-Instruct}"
+LOCAL_DIR="${LOCAL_DIR:-$ROOT_DIR/models/Qwen3-VL-2B-Instruct}"
 
 mkdir -p "$LOCAL_DIR"
 

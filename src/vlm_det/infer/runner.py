@@ -8,6 +8,7 @@ import torch
 from PIL import Image
 
 from vlm_det.config import ExperimentRuntimeConfig, load_config
+from vlm_det.infer.config import InferenceSettings, load_inference_settings
 from vlm_det.modeling.builder import BuildArtifacts, build_model_tokenizer_processor
 from vlm_det.protocol.codec import ArrowCodec
 from vlm_det.utils.checkpoint import load_training_checkpoint
@@ -17,6 +18,7 @@ from vlm_det.utils.generation import build_generate_kwargs, trim_generated_ids_a
 
 @dataclass
 class ArrowInferenceRunner:
+    settings: InferenceSettings
     config: ExperimentRuntimeConfig
     artifacts: BuildArtifacts
     codec: ArrowCodec
@@ -133,13 +135,31 @@ class ArrowInferenceRunner:
         )
 
 
-def load_inference_runner(config_path: str | Path, checkpoint_path: str | Path) -> ArrowInferenceRunner:
-    config = load_config(config_path)
+def _resolve_device(device_name: str | None) -> torch.device:
+    if device_name:
+        return torch.device(device_name)
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def load_inference_runner(
+    checkpoint_path: str | Path | None = None,
+    *,
+    config_path: str | Path | None = None,
+    env_file: str | Path | None = None,
+) -> ArrowInferenceRunner:
+    if config_path is not None:
+        config = load_config(config_path)
+        settings = load_inference_settings(checkpoint_path=checkpoint_path, env_file=env_file)
+        settings.runtime = config
+    else:
+        settings = load_inference_settings(checkpoint_path=checkpoint_path, env_file=env_file)
+        config = settings.runtime
+
     artifacts = build_model_tokenizer_processor(config)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = _resolve_device(settings.device)
     artifacts.model = artifacts.model.to(device)
     load_training_checkpoint(
-        checkpoint_dir=checkpoint_path,
+        checkpoint_dir=settings.checkpoint_path,
         model=artifacts.model,
         tokenizer=artifacts.tokenizer,
         processor=artifacts.processor,
@@ -149,6 +169,7 @@ def load_inference_runner(config_path: str | Path, checkpoint_path: str | Path) 
     unwrap_model(artifacts.model).eval()
     codec = ArrowCodec(num_bins=config.tokenizer.num_bins)
     return ArrowInferenceRunner(
+        settings=settings,
         config=config,
         artifacts=artifacts,
         codec=codec,
