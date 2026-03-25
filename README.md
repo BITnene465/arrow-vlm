@@ -192,6 +192,37 @@ python scripts/train.py \
 
 Use `--resume-from` only when you want to continue the same interrupted run.
 
+### Two-Stage Training Launcher
+
+Run synthetic post-train first, then launch real-data SFT from the stage-1 checkpoint:
+
+```bash
+python scripts/train_two_stage.py \
+  --stage1-config configs/train_sync_posttrain.yaml \
+  --stage2-config configs/train_full_ft.yaml
+```
+
+Use LoRA for stage 2 if needed:
+
+```bash
+python scripts/train_two_stage.py \
+  --stage1-config configs/train_sync_posttrain.yaml \
+  --stage2-config configs/train_lora.yaml
+```
+
+Preview commands without starting training:
+
+```bash
+python scripts/train_two_stage.py --dry-run
+```
+
+Use multi-GPU launchers for both stages:
+
+```bash
+python scripts/train_two_stage.py \
+  --runner "torchrun --nproc_per_node=2"
+```
+
 ## Prompting Style
 
 This branch keeps the `system_prompt` interface, but the default configuration follows the official `Qwen3-VL` style:
