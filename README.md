@@ -195,6 +195,11 @@ python scripts/train.py \
   --run-id 20260325-exp01
 ```
 
+The training config automatically appends the model scale tag inferred from
+`model_name_or_path` / `remote_model_name_or_path`. For example, a 2B model
+will use names and output paths ending in `2b`, while 4B / 8B configs will be
+separated automatically.
+
 Override the vision-tower freezing behavior for one run:
 
 ```bash
@@ -247,7 +252,7 @@ weights without restoring optimizer, scheduler, RNG, or global step:
 ```bash
 python scripts/train.py \
   --config configs/train_full_ft.yaml \
-  --init-from outputs/qwen3_vl_json_sync_posttrain_ft/checkpoints/best
+  --init-from outputs/qwen3vl-post/2b/checkpoints/best
 ```
 
 Use `--resume-from` only when you want to continue the same interrupted run.
@@ -284,8 +289,8 @@ python scripts/train_two_stage.py --dry-run
 With `--run-id`, the two stages are separated automatically, for example:
 
 ```text
-outputs/qwen3_vl_json_sync_posttrain_ft/20260325-exp01/stage1_sync_posttrain
-outputs/qwen3_vl_json_full_ft/20260325-exp01/stage2_real_sft
+outputs/qwen3vl-post/2b/20260325-exp01/stage1_sync_posttrain
+outputs/qwen3vl-ft/2b/20260325-exp01/stage2_real_sft
 ```
 
 Use multi-GPU launchers for both stages:

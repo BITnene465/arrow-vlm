@@ -199,8 +199,8 @@ Each arrow must contain at least 2 points.
 
 为了和旧路线区分，模板和默认配置已经改成：
 
-- `qwen3_vl_json_*`
-- `outputs/qwen3_vl_json_*`
+- `qwen3vl-*`
+- `outputs/qwen3vl-*`
 - wandb `project = vlm_det_json`
 
 ## 7. 已经清掉的旧路线残留

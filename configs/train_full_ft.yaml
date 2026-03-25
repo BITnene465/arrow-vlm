@@ -1,6 +1,6 @@
 experiment:
-  name: qwen3_vl_json_full_ft
-  output_dir: outputs/qwen3_vl_json_full_ft
+  name: qwen3vl-ft
+  output_dir: outputs/qwen3vl-ft
   seed: 42
 
 model:
@@ -85,7 +85,7 @@ eval:
 logging:
   use_wandb: true
   project: vlm_det_json
-  run_name: qwen3_vl_json_full_ft
+  run_name: qwen3vl-ft
   progress_ncols: 88
 
 checkpoint:

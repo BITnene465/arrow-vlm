@@ -10,8 +10,8 @@ import yaml
 
 @dataclass
 class ExperimentConfig:
-    name: str = "qwen3_vl_json_experiment"
-    output_dir: str = "outputs/qwen3_vl_json_experiment"
+    name: str = "qwen3vl-exp"
+    output_dir: str = "outputs/qwen3vl-exp"
     seed: int = 42
 
 
@@ -218,11 +218,33 @@ def load_config(path: str | Path) -> ExperimentRuntimeConfig:
     config_path = Path(path)
     with config_path.open("r", encoding="utf-8") as handle:
         yaml_payload = yaml.safe_load(handle) or {}
-    return _from_dict(ExperimentRuntimeConfig, yaml_payload)
+    config = _from_dict(ExperimentRuntimeConfig, yaml_payload)
+    return apply_model_scale_tag(config)
 
 
 def config_to_dict(config: ExperimentRuntimeConfig) -> dict[str, Any]:
     return asdict(config)
+
+
+def apply_model_scale_tag(config: ExperimentRuntimeConfig) -> ExperimentRuntimeConfig:
+    scale_tag = _extract_model_scale_tag(
+        config.model.model_name_or_path,
+        fallback=config.model.remote_model_name_or_path,
+    )
+    if scale_tag is None:
+        return config
+
+    if not _contains_standalone_tag(config.experiment.name, scale_tag):
+        config.experiment.name = f"{config.experiment.name}-{scale_tag}"
+
+    output_dir = Path(config.experiment.output_dir)
+    if output_dir.name != scale_tag:
+        config.experiment.output_dir = str(output_dir / scale_tag)
+
+    if config.logging.run_name is not None and not _contains_standalone_tag(config.logging.run_name, scale_tag):
+        config.logging.run_name = f"{config.logging.run_name}-{scale_tag}"
+
+    return config
 
 
 def apply_run_id(
@@ -259,3 +281,18 @@ def _normalize_run_component(value: str, *, field_name: str) -> str:
     if not normalized:
         raise ValueError(f"{field_name} must contain at least one alphanumeric character.")
     return normalized
+
+
+def _extract_model_scale_tag(primary: str | None, *, fallback: str | None = None) -> str | None:
+    for candidate in (primary, fallback):
+        if not candidate:
+            continue
+        basename = Path(str(candidate)).name.lower()
+        match = re.search(r"([0-9]+(?:\.[0-9]+)?b)", basename)
+        if match is not None:
+            return match.group(1)
+    return None
+
+
+def _contains_standalone_tag(text: str, tag: str) -> bool:
+    return re.search(rf"(^|[-_/]){re.escape(tag)}($|[-_/])", text) is not None
