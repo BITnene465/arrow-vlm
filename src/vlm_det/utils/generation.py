@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from transformers import StoppingCriteria, StoppingCriteriaList
+
+
 def normalize_eos_token_ids(eos_token_id: Any) -> int | list[int] | None:
     if eos_token_id is None:
         return None
@@ -39,6 +42,61 @@ def trim_generated_ids_at_eos(token_ids: Any, eos_token_id: int | list[int] | No
             break
         trimmed.append(token_id)
     return trimmed
+
+
+def find_balanced_json_array_end(text: str) -> int | None:
+    start = text.find("[")
+    if start < 0:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+            continue
+        if char == "[":
+            depth += 1
+            continue
+        if char == "]":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    return None
+
+
+def has_closed_json_array(text: str) -> bool:
+    return find_balanced_json_array_end(text) is not None
+
+
+class JsonArrayClosureStoppingCriteria(StoppingCriteria):
+    def __init__(self, tokenizer, prompt_lengths: list[int]) -> None:
+        self.tokenizer = tokenizer
+        self.prompt_lengths = [int(length) for length in prompt_lengths]
+
+    def __call__(self, input_ids, scores, **kwargs) -> bool:  # noqa: ANN001, ANN003
+        batch_size = int(input_ids.shape[0])
+        if batch_size != len(self.prompt_lengths):
+            return False
+        for row_index, prompt_length in enumerate(self.prompt_lengths):
+            continuation = input_ids[row_index, prompt_length:]
+            continuation_text = self.tokenizer.decode(continuation, skip_special_tokens=False)
+            if not has_closed_json_array(continuation_text):
+                return False
+        return True
+
+
+def build_json_array_stopping_criteria(tokenizer, prompt_lengths: list[int]) -> StoppingCriteriaList:
+    return StoppingCriteriaList([JsonArrayClosureStoppingCriteria(tokenizer, prompt_lengths)])
 
 
 def build_generate_kwargs(

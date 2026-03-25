@@ -51,6 +51,21 @@ def main() -> None:
     print(json.dumps(parse_report, ensure_ascii=False, indent=2))
     print("\n[raw-output]")
     print(raw_text)
+    generation = parse_report["generation"]
+    print(
+        "\n".join(
+            [
+                "[generation]",
+                f"requested_max_new_tokens={generation['requested_max_new_tokens']}",
+                f"generated_tokens={generation['generated_tokens']}",
+                f"returned_tokens={generation['returned_tokens']}",
+                f"stop_reason={generation['stop_reason']}",
+                f"saw_eos={generation['saw_eos']}",
+                f"closed_json_array={generation['closed_json_array']}",
+                f"hit_max_new_tokens={generation['hit_max_new_tokens']}",
+            ]
+        )
+    )
 
     lenient_prediction = parse_report["lenient"]["prediction"]
     if lenient_prediction is not None:

@@ -6,8 +6,229 @@ import json
 
 from PIL import Image
 
-from vlm_det.infer import draw_prediction, format_prediction_summary
+from vlm_det.infer import draw_prediction
 from vlm_det.infer.runner import load_inference_runner
+
+
+APP_CSS = """
+.gradio-container {
+  background:
+    radial-gradient(circle at top left, rgba(56, 189, 248, 0.08), transparent 28%),
+    radial-gradient(circle at top right, rgba(250, 204, 21, 0.08), transparent 24%),
+    linear-gradient(180deg, #fcfcfd 0%, #f5f7fb 100%);
+}
+
+.app-shell {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 24px 16px 36px;
+}
+
+.hero-panel {
+  background:
+    linear-gradient(135deg, rgba(15, 118, 110, 0.96), rgba(17, 24, 39, 0.9)),
+    linear-gradient(135deg, rgba(217, 119, 6, 0.16), transparent);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 28px;
+  padding: 30px 32px 24px;
+  color: #f7faf8;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.16);
+  overflow: hidden;
+  margin-bottom: 18px;
+}
+
+.hero-title {
+  margin: 0;
+  font-family: "Baskerville", "Palatino Linotype", serif;
+  font-size: 2.5rem;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.hero-copy {
+  margin: 12px 0 0;
+  max-width: 780px;
+  color: rgba(247, 250, 248, 0.84);
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+.meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.meta-chip {
+  display: block;
+  padding: 12px 14px;
+  min-width: 220px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.meta-label {
+  display: block;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(226, 232, 240, 0.74);
+}
+
+.meta-value {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.95rem;
+  color: #f8fafc;
+  word-break: break-all;
+}
+
+.surface-panel {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.08);
+}
+
+.surface-pad {
+  padding: 18px 18px 10px;
+}
+
+.section-title {
+  margin: 0 0 8px;
+  font-family: "Baskerville", "Palatino Linotype", serif;
+  font-size: 1.2rem;
+  color: #0f172a;
+}
+
+.section-copy {
+  margin: 0;
+  color: #475569;
+  font-size: 0.94rem;
+  line-height: 1.45;
+}
+
+.status-board {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.status-card {
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+}
+
+.status-label {
+  display: block;
+  color: #64748b;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.status-value {
+  display: block;
+  margin-top: 6px;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 78px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.badge.ok {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.badge.fail {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.error-strip {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  color: #9f1239;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.compact-note {
+  color: #475569;
+  font-size: 0.88rem;
+}
+
+#run-button button {
+  min-height: 54px;
+  font-size: 1rem;
+  font-weight: 700;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #0f766e, #115e59);
+  color: #ffffff;
+  border: none;
+}
+
+#clear-button button {
+  min-height: 54px;
+  border-radius: 16px;
+  background: #ffffff;
+  color: #334155;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+#input-image, #output-image, #raw-output, #parse-output, #generation-panel, #status-panel {
+  border-radius: 24px;
+}
+
+#status-panel {
+  min-height: 210px;
+}
+
+.gradio-container .tabs {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.06);
+}
+
+@media (max-width: 1100px) {
+  .status-board {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .hero-panel {
+    padding: 24px 20px 20px;
+  }
+
+  .hero-title {
+    font-size: 1.95rem;
+  }
+
+  .status-board {
+    grid-template-columns: 1fr;
+  }
+}
+"""
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Launch a Gradio demo for ArrowVLM.")
@@ -16,6 +237,69 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--env-file", default=None, help="Optional path to a .env file for inference/app settings.")
     parser.add_argument("--max-new-tokens", type=int, default=None, help="Override inference max_new_tokens for this app session.")
     return parser.parse_args()
+
+
+def _render_status_panel(
+    parse_report: dict[str, object],
+    *,
+    max_new_tokens: int,
+) -> str:
+    generation = parse_report["generation"]
+    strict = parse_report["strict"]
+    lenient = parse_report["lenient"]
+    display_prediction = strict["prediction"] or lenient["prediction"]
+    instances = display_prediction.get("instances", []) if display_prediction is not None else []
+    point_count = sum(len(instance.get("keypoints", [])) for instance in instances)
+
+    lenient_badge = '<span class="badge ok">PASS</span>' if lenient["ok"] else '<span class="badge fail">FAIL</span>'
+    strict_badge = '<span class="badge ok">PASS</span>' if strict["ok"] else '<span class="badge fail">FAIL</span>'
+
+    error_message = strict["error"] or lenient["error"]
+    error_html = ""
+    if error_message:
+        error_html = f'<div class="error-strip"><strong>Parse issue:</strong> {error_message}</div>'
+
+    return f"""
+    <div class="status-board">
+      <div class="status-card">
+        <span class="status-label">Detected Arrows</span>
+        <span class="status-value">{len(instances)}</span>
+      </div>
+      <div class="status-card">
+        <span class="status-label">Total Keypoints</span>
+        <span class="status-value">{point_count}</span>
+      </div>
+      <div class="status-card">
+        <span class="status-label">Lenient Parse</span>
+        <span class="status-value">{lenient_badge}</span>
+      </div>
+      <div class="status-card">
+        <span class="status-label">Strict Parse</span>
+        <span class="status-value">{strict_badge}</span>
+      </div>
+      <div class="status-card">
+        <span class="status-label">Generated Tokens</span>
+        <span class="status-value">{generation["generated_tokens"]}</span>
+      </div>
+      <div class="status-card">
+        <span class="status-label">Stop Reason</span>
+        <span class="status-value">{generation["stop_reason"]}</span>
+      </div>
+      <div class="status-card">
+        <span class="status-label">Saw EOS</span>
+        <span class="status-value">{'<span class="badge ok">YES</span>' if generation["saw_eos"] else '<span class="badge fail">NO</span>'}</span>
+      </div>
+      <div class="status-card">
+        <span class="status-label">JSON Closed</span>
+        <span class="status-value">{'<span class="badge ok">YES</span>' if generation["closed_json_array"] else '<span class="badge fail">NO</span>'}</span>
+      </div>
+    </div>
+    <div class="compact-note" style="margin-top: 14px;">
+      Current generation budget: <strong>{max_new_tokens}</strong> new tokens
+      &nbsp;|&nbsp; hit max: <strong>{generation["hit_max_new_tokens"]}</strong>
+    </div>
+    {error_html}
+    """
 
 def build_demo(runner, *, default_max_new_tokens: int | None = None):
     try:
@@ -31,7 +315,7 @@ def build_demo(runner, *, default_max_new_tokens: int | None = None):
 
     def predict(image: Image.Image | None, max_new_tokens: int) -> tuple[Image.Image | None, str, str, str]:
         if image is None:
-            return None, "No image provided.", "", ""
+            return None, "<div class='error-strip'>No image provided.</div>", "", ""
 
         raw_text, parse_report = runner.predict(image, max_new_tokens=max_new_tokens)
         strict_prediction = parse_report["strict"]["prediction"]
@@ -40,35 +324,88 @@ def build_demo(runner, *, default_max_new_tokens: int | None = None):
 
         if display_prediction is not None:
             rendered = draw_prediction(image, display_prediction)
-            summary = format_prediction_summary(display_prediction)
         else:
             rendered = image
-            summary = "Detected arrows: parse failed"
 
-        status_line = " | ".join(
-            [
-                summary,
-                f"Lenient: {parse_report['lenient']['ok']}",
-                f"Strict: {parse_report['strict']['ok']}",
-                f"max_new_tokens: {max_new_tokens}",
-            ]
-        )
-        return rendered, status_line, raw_text, json.dumps(parse_report, ensure_ascii=False, indent=2)
+        status_html = _render_status_panel(parse_report, max_new_tokens=max_new_tokens)
+        return rendered, status_html, raw_text, json.dumps(parse_report, ensure_ascii=False, indent=2)
 
-    with gr.Blocks(title="Arrow VLM Inference") as demo:
-        gr.Markdown("## Arrow VLM Inference")
-        with gr.Row():
-            image_input = gr.Image(type="pil", label="Input Image")
-            image_output = gr.Image(type="pil", label="Prediction Overlay")
-        max_new_tokens_input = gr.Number(
-            label="Max New Tokens",
-            value=effective_default_max_new_tokens,
-            precision=0,
-        )
-        status_output = gr.Markdown()
-        raw_output = gr.Textbox(label="Raw Model Output", lines=12)
-        parse_output = gr.Code(label="Parse Report", language="json")
-        run_button = gr.Button("Run Inference")
+    meta_html = f"""
+    <div class="hero-panel">
+      <h1 class="hero-title">Arrow VLM Workbench</h1>
+      <p class="hero-copy">
+        Upload a figure, inspect the overlay, compare strict versus lenient parsing,
+        and tune generation behavior without leaving the page.
+      </p>
+      <div class="meta-row">
+        <div class="meta-chip">
+          <span class="meta-label">Model</span>
+          <span class="meta-value">{runner.config.model.model_name_or_path}</span>
+        </div>
+        <div class="meta-chip">
+          <span class="meta-label">Checkpoint</span>
+          <span class="meta-value">{runner.settings.checkpoint_path}</span>
+        </div>
+      </div>
+    </div>
+    """
+
+    with gr.Blocks(title="Arrow VLM Inference", css=APP_CSS) as demo:
+        with gr.Column(elem_classes=["app-shell"]):
+            gr.HTML(meta_html)
+            with gr.Row(equal_height=True):
+                with gr.Column(scale=4, elem_id="generation-panel", elem_classes=["surface-panel"]):
+                    gr.HTML(
+                        """
+                        <div class="surface-pad">
+                          <h3 class="section-title">Input & Controls</h3>
+                          <p class="section-copy">
+                            Tune generation budget here, then run one-shot structured inference.
+                          </p>
+                        </div>
+                        """
+                    )
+                    image_input = gr.Image(type="pil", label="Input Figure", elem_id="input-image")
+                    max_new_tokens_input = gr.Slider(
+                        label="Max New Tokens",
+                        minimum=256,
+                        maximum=16384,
+                        step=256,
+                        value=max(256, int(effective_default_max_new_tokens)),
+                    )
+                    with gr.Row():
+                        run_button = gr.Button("Run Inference", elem_id="run-button")
+                with gr.Column(scale=6):
+                    image_output = gr.Image(
+                        type="pil",
+                        label="Prediction Overlay",
+                        elem_id="output-image",
+                    )
+                    with gr.Group(elem_id="status-panel", elem_classes=["surface-panel"]):
+                        gr.HTML(
+                            """
+                            <div class="surface-pad">
+                              <h3 class="section-title">Run Status</h3>
+                              <p class="section-copy">
+                                Compact summary of parsed results and generation budget.
+                              </p>
+                            </div>
+                            """
+                        )
+                        status_output = gr.HTML(
+                            "<div class='compact-note' style='padding: 0 18px 18px;'>Run an image to populate results.</div>"
+                        )
+            with gr.Tabs():
+                with gr.Tab("Raw Output"):
+                    raw_output = gr.Textbox(label="Raw Model Output", lines=14, elem_id="raw-output")
+                with gr.Tab("Parse Report"):
+                    parse_output = gr.Code(label="Parse Report", language="json", elem_id="parse-output")
+            clear_button = gr.ClearButton(
+                [image_input, image_output, status_output, raw_output, parse_output],
+                value="Clear",
+                elem_id="clear-button",
+            )
+
         run_button.click(
             fn=predict,
             inputs=[image_input, max_new_tokens_input],
