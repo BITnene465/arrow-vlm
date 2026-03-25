@@ -8,7 +8,7 @@ model:
   remote_model_name_or_path: Qwen/Qwen3-VL-2B-Instruct
   trust_remote_code: true
   attn_implementation: flash_attention_2
-  freeze_vision_tower: false
+  freeze_vision_tower: true
   vision_name_substrings:
     - visual
   projector_name_substrings:
@@ -65,7 +65,7 @@ train:
   find_unused_parameters: false
 
 eval:
-  per_device_batch_size: 4
+  per_device_batch_size: 8
   # synthetic post-training 使用更长的输出上限，以覆盖多实例与长路径样本
   max_new_tokens: 2048
   num_beams: 1

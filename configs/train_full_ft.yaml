@@ -70,9 +70,7 @@ train:
 
 eval:
   per_device_batch_size: 8
-  # 训练期评估先收紧到 512，避免模型早期无法闭合协议时把生成打满上限。
-  # 最终离线评估或部署再单独放宽。
-  max_new_tokens: 512
+  max_new_tokens: 2048
   num_beams: 1
   do_sample: false
   use_cache: true
