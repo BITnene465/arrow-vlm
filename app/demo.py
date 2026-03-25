@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import json
+from pathlib import Path
 
+import torch
 from PIL import Image
 
 from vlm_det.infer import draw_prediction
@@ -239,6 +242,16 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _discover_model_choices(current_model_name_or_path: str) -> list[str]:
+    discovered: set[str] = {current_model_name_or_path}
+    models_dir = Path("models")
+    if models_dir.exists():
+        for child in sorted(models_dir.iterdir()):
+            if child.is_dir():
+                discovered.add(str(child))
+    return sorted(discovered)
+
+
 def _render_status_panel(
     parse_report: dict[str, object],
     *,
@@ -297,7 +310,12 @@ def _render_status_panel(
     {error_html}
     """
 
-def build_demo(runner, *, default_max_new_tokens: int | None = None):
+def build_demo(
+    runner,
+    *,
+    default_max_new_tokens: int | None = None,
+    runner_factory=None,
+):
     try:
         import gradio as gr
     except ImportError as exc:
@@ -308,15 +326,51 @@ def build_demo(runner, *, default_max_new_tokens: int | None = None):
         ) from exc
 
     effective_default_max_new_tokens = default_max_new_tokens or runner.config.eval.max_new_tokens
+    model_choices = _discover_model_choices(runner.config.model.model_name_or_path)
+    runner_holder = {"runner": runner, "model_name_or_path": runner.config.model.model_name_or_path}
 
     def _gallery_items(image: Image.Image | None) -> list[Image.Image]:
         return [image] if image is not None else []
 
-    def predict(image: Image.Image | None, max_new_tokens: int) -> tuple[list[Image.Image], str, str, str]:
+    def _get_runner(model_name_or_path: str):
+        selected_model = model_name_or_path.strip()
+        if not selected_model:
+            raise ValueError("Model path cannot be empty.")
+        current_model = runner_holder["model_name_or_path"]
+        if selected_model == current_model:
+            return runner_holder["runner"]
+        if runner_factory is None:
+            raise RuntimeError("Runner factory is unavailable for model switching.")
+
+        previous_runner = runner_holder["runner"]
+        runner_holder["runner"] = None
+        try:
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            next_runner = runner_factory(selected_model)
+        except Exception:
+            runner_holder["runner"] = previous_runner
+            raise
+
+        runner_holder["runner"] = next_runner
+        runner_holder["model_name_or_path"] = selected_model
+        del previous_runner
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        return next_runner
+
+    def predict(image: Image.Image | None, max_new_tokens: int, model_name_or_path: str) -> tuple[list[Image.Image], str, str, str]:
         if image is None:
             return [], "<div class='error-strip'>No image provided.</div>", "", ""
 
-        raw_text, parse_report = runner.predict(image, max_new_tokens=max_new_tokens)
+        try:
+            active_runner = _get_runner(model_name_or_path)
+            raw_text, parse_report = active_runner.predict(image, max_new_tokens=max_new_tokens)
+        except Exception as exc:  # noqa: BLE001
+            return [], f"<div class='error-strip'><strong>Inference failed:</strong> {exc}</div>", "", ""
         strict_prediction = parse_report["strict"]["prediction"]
         lenient_prediction = parse_report["lenient"]["prediction"]
         display_prediction = strict_prediction or lenient_prediction
@@ -339,7 +393,7 @@ def build_demo(runner, *, default_max_new_tokens: int | None = None):
       <div class="meta-row">
         <div class="meta-chip">
           <span class="meta-label">Model</span>
-          <span class="meta-value">{runner.config.model.model_name_or_path}</span>
+          <span class="meta-value">Selectable in controls below</span>
         </div>
         <div class="meta-chip">
           <span class="meta-label">Checkpoint</span>
@@ -388,6 +442,13 @@ def build_demo(runner, *, default_max_new_tokens: int | None = None):
                         step=256,
                         value=max(256, int(effective_default_max_new_tokens)),
                     )
+                    model_name_or_path_input = gr.Dropdown(
+                        label="Base Model",
+                        choices=model_choices,
+                        value=runner.config.model.model_name_or_path,
+                        allow_custom_value=True,
+                        info="Checkpoint and base model size must match.",
+                    )
                     with gr.Row():
                         run_button = gr.Button("Run Inference", elem_id="run-button")
                 with gr.Column(scale=6):
@@ -422,7 +483,7 @@ def build_demo(runner, *, default_max_new_tokens: int | None = None):
                 with gr.Tab("Parse Report"):
                     parse_output = gr.Code(label="Parse Report", language="json", elem_id="parse-output")
             clear_button = gr.ClearButton(
-                [image_input, input_preview, image_output, status_output, raw_output, parse_output],
+                [image_input, input_preview, image_output, status_output, raw_output, parse_output, model_name_or_path_input],
                 value="Clear",
                 elem_id="clear-button",
             )
@@ -434,7 +495,7 @@ def build_demo(runner, *, default_max_new_tokens: int | None = None):
         )
         run_button.click(
             fn=predict,
-            inputs=[image_input, max_new_tokens_input],
+            inputs=[image_input, max_new_tokens_input, model_name_or_path_input],
             outputs=[image_output, status_output, raw_output, parse_output],
         )
     return demo
@@ -442,12 +503,20 @@ def build_demo(runner, *, default_max_new_tokens: int | None = None):
 
 def main() -> None:
     args = parse_args()
-    runner = load_inference_runner(
-        checkpoint_path=args.checkpoint,
-        config_path=args.config,
-        env_file=args.env_file,
+    def _runner_factory(model_name_or_path: str | None = None):
+        return load_inference_runner(
+            checkpoint_path=args.checkpoint,
+            config_path=args.config,
+            env_file=args.env_file,
+            model_name_or_path=model_name_or_path,
+        )
+
+    runner = _runner_factory()
+    demo = build_demo(
+        runner,
+        default_max_new_tokens=args.max_new_tokens,
+        runner_factory=_runner_factory,
     )
-    demo = build_demo(runner, default_max_new_tokens=args.max_new_tokens)
     demo.launch(
         server_name=runner.settings.app.host,
         server_port=runner.settings.app.port,

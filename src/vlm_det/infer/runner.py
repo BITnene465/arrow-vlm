@@ -186,6 +186,7 @@ def load_inference_runner(
     *,
     config_path: str | Path | None = None,
     env_file: str | Path | None = None,
+    model_name_or_path: str | None = None,
 ) -> ArrowInferenceRunner:
     if config_path is not None:
         config = load_config(config_path)
@@ -194,6 +195,10 @@ def load_inference_runner(
     else:
         settings = load_inference_settings(checkpoint_path=checkpoint_path, env_file=env_file)
         config = settings.runtime
+
+    if model_name_or_path is not None:
+        config.model.model_name_or_path = model_name_or_path
+        config.model.remote_model_name_or_path = model_name_or_path
 
     artifacts = build_model_tokenizer_processor(config)
     device = _resolve_device(settings.device)
