@@ -11,7 +11,7 @@ from vlm_det.config import ExperimentRuntimeConfig, load_config
 from vlm_det.modeling.builder import BuildArtifacts, build_model_tokenizer_processor
 from vlm_det.protocol.codec import ArrowCodec
 from vlm_det.utils.checkpoint import load_training_checkpoint
-from vlm_det.utils.distributed import unwrap_model
+from vlm_det.utils.distributed import reset_model_runtime_state, unwrap_model
 from vlm_det.utils.generation import build_generate_kwargs, trim_generated_ids_at_eos
 
 
@@ -40,6 +40,7 @@ class ArrowInferenceRunner:
             use_cache=self.config.eval.use_cache,
         )
         with torch.inference_mode():
+            reset_model_runtime_state(raw_model)
             output_ids = raw_model.generate(
                 **model_inputs,
                 **generate_kwargs,

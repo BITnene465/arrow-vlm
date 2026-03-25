@@ -15,7 +15,12 @@ from vlm_det.utils.checkpoint import (
     load_training_checkpoint,
     save_training_checkpoint,
 )
-from vlm_det.utils.distributed import is_main_process, reduce_numeric_dict, unwrap_model
+from vlm_det.utils.distributed import (
+    is_main_process,
+    reduce_numeric_dict,
+    reset_model_runtime_state,
+    unwrap_model,
+)
 from vlm_det.utils.io import ensure_dir
 from vlm_det.utils.logging import ExperimentLogger, create_progress_bar
 
@@ -142,6 +147,7 @@ class ArrowTrainer:
 
     def train_one_step(self, batch) -> dict[str, float]:
         model_inputs = self._move_batch_to_device(batch)
+        reset_model_runtime_state(self.model)
         autocast_context = (
             torch.autocast(device_type=self.device.type, dtype=torch.bfloat16)
             if self.config.train.bf16 and self.device.type == "cuda"
@@ -260,9 +266,12 @@ class ArrowTrainer:
             "attention_mask": batch["attention_mask"].to(self.device),
             "labels": batch["labels"].to(self.device),
             "pixel_values": batch["pixel_values"].to(self.device),
+            "use_cache": False,
         }
         if batch.get("image_grid_thw") is not None:
             model_inputs["image_grid_thw"] = batch["image_grid_thw"].to(self.device)
+        if batch.get("mm_token_type_ids") is not None:
+            model_inputs["mm_token_type_ids"] = batch["mm_token_type_ids"].to(self.device)
         return model_inputs
 
     def _log_metrics(self, metrics: dict[str, float], step: int) -> None:

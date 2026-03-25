@@ -6,7 +6,7 @@ from typing import Any
 import torch
 
 from vlm_det.protocol.codec import ArrowCodec
-from vlm_det.utils.distributed import reduce_numeric_dict, unwrap_model
+from vlm_det.utils.distributed import reduce_numeric_dict, reset_model_runtime_state, unwrap_model
 from vlm_det.utils.generation import build_generate_kwargs, trim_generated_ids_at_eos
 from vlm_det.utils.logging import create_progress_bar
 
@@ -78,6 +78,8 @@ class ArrowEvaluator:
             "attention_mask": batch["attention_mask"].to(next(model.parameters()).device),
             "pixel_values": batch["pixel_values"].to(next(model.parameters()).device),
         }
+        if batch.get("mm_token_type_ids") is not None:
+            generate_inputs["mm_token_type_ids"] = batch["mm_token_type_ids"].to(next(model.parameters()).device)
         generate_inputs.update(
             build_generate_kwargs(
                 self.tokenizer,
@@ -92,6 +94,7 @@ class ArrowEvaluator:
         )
         if batch.get("image_grid_thw") is not None:
             generate_inputs["image_grid_thw"] = batch["image_grid_thw"].to(next(model.parameters()).device)
+        reset_model_runtime_state(model)
         generated = model.generate(**generate_inputs)
         counts = self._empty_counts()
         previews: list[dict[str, Any]] = []

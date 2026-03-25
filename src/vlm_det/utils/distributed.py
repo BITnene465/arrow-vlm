@@ -53,6 +53,13 @@ def unwrap_model(model: torch.nn.Module) -> torch.nn.Module:
     return model.module if hasattr(model, "module") else model
 
 
+def reset_model_runtime_state(model: torch.nn.Module) -> torch.nn.Module:
+    raw_model = unwrap_model(model)
+    if hasattr(raw_model, "rope_deltas"):
+        raw_model.rope_deltas = None
+    return raw_model
+
+
 def seed_everything(seed: int, rank: int = 0) -> None:
     final_seed = seed + rank
     random.seed(final_seed)

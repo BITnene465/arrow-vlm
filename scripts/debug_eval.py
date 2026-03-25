@@ -14,7 +14,7 @@ from vlm_det.data.dataset import ArrowSFTDataset
 from vlm_det.modeling.builder import build_model_tokenizer_processor
 from vlm_det.protocol.codec import ArrowCodec
 from vlm_det.utils.checkpoint import load_training_checkpoint
-from vlm_det.utils.distributed import unwrap_model
+from vlm_det.utils.distributed import reset_model_runtime_state, unwrap_model
 from vlm_det.utils.generation import build_generate_kwargs, trim_generated_ids_at_eos
 
 
@@ -101,6 +101,8 @@ def main() -> None:
             "attention_mask": batch["attention_mask"].to(device),
             "pixel_values": batch["pixel_values"].to(device),
         }
+        if batch.get("mm_token_type_ids") is not None:
+            model_inputs["mm_token_type_ids"] = batch["mm_token_type_ids"].to(device)
         if batch.get("image_grid_thw") is not None:
             model_inputs["image_grid_thw"] = batch["image_grid_thw"].to(device)
         generate_kwargs = build_generate_kwargs(
@@ -116,6 +118,7 @@ def main() -> None:
 
         start_time = time.perf_counter()
         with torch.inference_mode():
+            reset_model_runtime_state(model)
             output_ids = model.generate(**model_inputs, **generate_kwargs)
         elapsed = time.perf_counter() - start_time
 

@@ -56,11 +56,16 @@ class ArrowSFTCollator:
         final_input_ids: list[torch.Tensor] = []
         final_labels: list[torch.Tensor] = []
         final_attention_masks: list[torch.Tensor] = []
+        final_mm_token_type_ids: list[torch.Tensor] = []
         prompt_length_tensor: list[int] = []
+        prefix_mm_token_type_ids = prefix_batch.get("mm_token_type_ids")
 
         for row_index, prompt_length in enumerate(prompt_lengths):
             prefix_mask = prefix_batch["attention_mask"][row_index].bool()
             prefix_ids = prefix_batch["input_ids"][row_index][prefix_mask]
+            prefix_mm_ids = None
+            if prefix_mm_token_type_ids is not None:
+                prefix_mm_ids = prefix_mm_token_type_ids[row_index][prefix_mask]
             if self.include_targets_in_inputs:
                 target_ids = list(target_batch["input_ids"][row_index])
                 if self.add_eos_token and eos_id is not None and (not target_ids or target_ids[-1] != eos_id):
@@ -74,13 +79,20 @@ class ArrowSFTCollator:
                     ],
                     dim=0,
                 )
+                if prefix_mm_ids is not None:
+                    target_mm_ids = torch.zeros_like(target_tensor)
+                    mm_token_type_ids = torch.cat([prefix_mm_ids, target_mm_ids], dim=0)
             else:
                 input_ids = prefix_ids
                 labels = torch.full((prefix_ids.shape[0],), self.ignore_index, dtype=torch.long)
+                if prefix_mm_ids is not None:
+                    mm_token_type_ids = prefix_mm_ids
             attention_mask = torch.ones_like(input_ids)
             final_input_ids.append(input_ids)
             final_labels.append(labels)
             final_attention_masks.append(attention_mask)
+            if prefix_mm_ids is not None:
+                final_mm_token_type_ids.append(mm_token_type_ids)
             prompt_length_tensor.append(prefix_ids.shape[0])
 
         padded_input_ids = self._pad_sequences(
@@ -114,6 +126,11 @@ class ArrowSFTCollator:
                 "target_text": [item["target_text"] for item in batch],
             },
         }
+        if prefix_mm_token_type_ids is not None:
+            output["mm_token_type_ids"] = self._pad_sequences(
+                final_mm_token_type_ids,
+                padding_value=0,
+            )
         return output
 
     def _build_messages(self, system_prompt: str, user_prompt: str) -> list[dict[str, Any]]:
