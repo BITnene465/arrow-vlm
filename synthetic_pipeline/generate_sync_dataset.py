@@ -2,24 +2,19 @@
 from __future__ import annotations
 
 import argparse
-import os
-import json
-import math
 import random
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from dataclasses import dataclass
-from io import BytesIO
+import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
 
-import yaml
-from PIL import Image, ImageDraw, ImageFilter
+if __package__ is None or __package__ == "":
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-
-@dataclass
-class ArrowSpec:
-    bbox: list[float]
-    keypoints: list[list[Any]]
+from synthetic_pipeline.asset_bank import AssetBank
+from synthetic_pipeline.config import load_config
+from synthetic_pipeline.exporter import DatasetExporter, dumps_summary
+from synthetic_pipeline.renderer import build_renderer
+from synthetic_pipeline.scene_sampler import SceneSampler
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,649 +29,43 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--workers", type=int, default=None)
+    parser.add_argument(
+        "--renderer",
+        choices=["procedural", "hybrid"],
+        default=None,
+        help="Override renderer backend for this run.",
+    )
     return parser.parse_args()
 
 
-def _load_config(path: str | Path) -> dict[str, Any]:
-    with Path(path).open("r", encoding="utf-8") as handle:
-        return yaml.safe_load(handle)
-
-
-def _weighted_choice(rng: random.Random, mapping: dict[str, float]) -> str:
-    keys = list(mapping.keys())
-    weights = list(mapping.values())
-    return rng.choices(keys, weights=weights, k=1)[0]
-
-
-def _weighted_range_choice(rng: random.Random, entries: list[dict[str, Any]]) -> dict[str, Any]:
-    return rng.choices(entries, weights=[float(item["weight"]) for item in entries], k=1)[0]
-
-
-def _sample_resolution(rng: random.Random, buckets: list[dict[str, Any]]) -> tuple[int, int]:
-    bucket = _weighted_range_choice(rng, buckets)
-    width = rng.randint(int(bucket["min_width"]), int(bucket["max_width"]))
-    height = rng.randint(int(bucket["min_height"]), int(bucket["max_height"]))
-    return width, height
-
-
-def _sample_arrow_count(rng: random.Random, bins: list[dict[str, Any]]) -> int:
-    bucket = _weighted_range_choice(rng, bins)
-    return rng.randint(int(bucket["min"]), int(bucket["max"]))
-
-
-def _sample_arrow_count_for_scene(rng: random.Random, bins: list[dict[str, Any]], scene_mode: str) -> int:
-    if scene_mode in {"single_hero", "single_crop"}:
-        return 1
-    if scene_mode == "sparse_large":
-        return rng.randint(1, 6)
-    return _sample_arrow_count(rng, bins)
-
-
-def _sample_point_count(rng: random.Random, bins: list[dict[str, Any]]) -> int:
-    bucket = _weighted_range_choice(rng, bins)
-    return int(bucket["count"])
-
-
-def _sample_geometry_mode(rng: random.Random, entries: list[dict[str, Any]]) -> str:
-    return str(_weighted_range_choice(rng, entries)["name"])
-
-
-def _sample_scene_mode(rng: random.Random, entries: list[dict[str, Any]]) -> str:
-    return str(_weighted_range_choice(rng, entries)["name"])
-
-
-def _sample_arrow_size_mode(rng: random.Random, entries: list[dict[str, Any]]) -> dict[str, Any]:
-    return _weighted_range_choice(rng, entries)
-
-
-def _clamp(value: float, lower: float, upper: float) -> float:
-    return max(lower, min(upper, value))
-
-
-def _bbox_iou(box_a: list[float], box_b: list[float]) -> float:
-    ax1, ay1, ax2, ay2 = box_a
-    bx1, by1, bx2, by2 = box_b
-    inter_x1 = max(ax1, bx1)
-    inter_y1 = max(ay1, by1)
-    inter_x2 = min(ax2, bx2)
-    inter_y2 = min(ay2, by2)
-    if inter_x2 <= inter_x1 or inter_y2 <= inter_y1:
-        return 0.0
-    inter_area = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
-    area_a = max(ax2 - ax1, 0.0) * max(ay2 - ay1, 0.0)
-    area_b = max(bx2 - bx1, 0.0) * max(by2 - by1, 0.0)
-    union = area_a + area_b - inter_area
-    if union <= 0.0:
-        return 0.0
-    return inter_area / union
-
-
-def _make_background(width: int, height: int, style_cfg: dict[str, Any], rng: random.Random) -> Image.Image:
-    mode = _weighted_choice(rng, style_cfg["background_modes"])
-    if mode == "plain_white":
-        color = (255, 255, 255)
-    elif mode == "gray":
-        gray = rng.randint(220, 245)
-        color = (gray, gray, gray)
-    else:
-        base = rng.randint(235, 250)
-        tint = rng.randint(-8, 8)
-        color = (base + tint, base + tint // 2, base - tint // 2)
-    image = Image.new("RGB", (width, height), color)
-    draw = ImageDraw.Draw(image)
-    if mode == "paper":
-        for _ in range(max(width * height // 12000, 50)):
-            x = rng.randint(0, width - 1)
-            y = rng.randint(0, height - 1)
-            delta = rng.randint(-10, 10)
-            pixel = tuple(int(_clamp(channel + delta, 0, 255)) for channel in color)
-            draw.point((x, y), fill=pixel)
-    return image
-
-
-def _draw_distractors(draw: ImageDraw.ImageDraw, width: int, height: int, style_cfg: dict[str, Any], rng: random.Random) -> None:
-    distractor_lines = rng.randint(*style_cfg["distractor_lines_range"])
-    distractor_boxes = rng.randint(*style_cfg["distractor_boxes_range"])
-    text_like_strokes = rng.randint(*style_cfg["text_like_strokes_range"])
-    line_width = max(1, int(rng.randint(*style_cfg["distractor_line_width_range"])))
-
-    for _ in range(distractor_lines):
-        x1 = rng.randint(0, width - 1)
-        y1 = rng.randint(0, height - 1)
-        x2 = rng.randint(0, width - 1)
-        y2 = rng.randint(0, height - 1)
-        color = tuple(rng.randint(80, 180) for _ in range(3))
-        draw.line((x1, y1, x2, y2), fill=color, width=line_width)
-
-    for _ in range(distractor_boxes):
-        w = rng.randint(max(width // 20, 12), max(width // 6, 24))
-        h = rng.randint(max(height // 20, 12), max(height // 6, 24))
-        x1 = rng.randint(0, max(width - w - 1, 1))
-        y1 = rng.randint(0, max(height - h - 1, 1))
-        x2 = x1 + w
-        y2 = y1 + h
-        color = tuple(rng.randint(90, 170) for _ in range(3))
-        draw.rectangle((x1, y1, x2, y2), outline=color, width=line_width)
-
-    for _ in range(text_like_strokes):
-        x = rng.randint(0, width - 60)
-        y = rng.randint(0, height - 20)
-        color = tuple(rng.randint(60, 140) for _ in range(3))
-        for step in range(rng.randint(3, 8)):
-            x1 = x + step * rng.randint(8, 14)
-            x2 = x1 + rng.randint(4, 10)
-            y_jitter = y + rng.randint(-1, 1)
-            draw.line((x1, y_jitter, x2, y_jitter), fill=color, width=1)
-
-
-def _apply_render_style(points: list[tuple[float, float]], render_style: str, rng: random.Random) -> list[tuple[float, float]]:
-    if render_style == "clean":
-        return points
-    jitter_scale = 0.0
-    if render_style == "handdrawn":
-        jitter_scale = 1.5
-    elif render_style == "handdrawn_heavy":
-        jitter_scale = 3.0
-    elif render_style == "marker_jitter":
-        jitter_scale = 1.2
-    if jitter_scale <= 0:
-        return points
-    styled: list[tuple[float, float]] = []
-    for idx, (x, y) in enumerate(points):
-        if idx == 0 or idx == len(points) - 1:
-            styled.append((x, y))
-            continue
-        styled.append((x + rng.uniform(-jitter_scale, jitter_scale), y + rng.uniform(-jitter_scale, jitter_scale)))
-    return styled
-
-
-def _orthogonal(vec_x: float, vec_y: float) -> tuple[float, float]:
-    return -vec_y, vec_x
-
-
-def _normalize(vec_x: float, vec_y: float) -> tuple[float, float]:
-    norm = math.hypot(vec_x, vec_y)
-    if norm == 0:
-        return 0.0, 0.0
-    return vec_x / norm, vec_y / norm
-
-
-def _sample_arrow_points(
-    width: int,
-    height: int,
-    point_count: int,
-    layout_cfg: dict[str, Any],
-    geometry_mode: str,
-    size_mode: dict[str, Any],
-    rng: random.Random,
-) -> list[tuple[float, float]]:
-    margin = max(int(min(width, height) * float(layout_cfg["edge_margin_ratio"])), 12)
-    default_min_length = min(width, height) * float(layout_cfg["min_arrow_length_ratio"])
-    default_max_length = min(width, height) * float(layout_cfg["max_arrow_length_ratio"])
-    min_length = min(width, height) * float(size_mode.get("min_length_ratio", layout_cfg["min_arrow_length_ratio"]))
-    max_length = min(width, height) * float(size_mode.get("max_length_ratio", layout_cfg["max_arrow_length_ratio"]))
-    min_length = max(min_length, default_min_length * 0.6)
-    max_length = min(max(max_length, min_length + 8.0), min(width, height) * 0.95)
-
-    start_x = rng.uniform(margin, width - margin)
-    start_y = rng.uniform(margin, height - margin)
-    if rng.random() < float(layout_cfg.get("primary_axis_aligned_probability", 0.0)):
-        base_angle = rng.choice([0.0, math.pi / 2, math.pi, 3 * math.pi / 2])
-        jitter = math.radians(
-            rng.uniform(
-                -float(layout_cfg.get("orthogonal_angle_jitter_deg", 0.0)),
-                float(layout_cfg.get("orthogonal_angle_jitter_deg", 0.0)),
-            )
-        )
-        angle = base_angle + jitter
-    else:
-        angle = rng.uniform(0, math.tau)
-    total_length = rng.uniform(min_length, max_length)
-    end_x = _clamp(start_x + math.cos(angle) * total_length, margin, width - margin)
-    end_y = _clamp(start_y + math.sin(angle) * total_length, margin, height - margin)
-
-    points = [(start_x, start_y)]
-    if point_count == 2:
-        points.append((end_x, end_y))
-        return points
-
-    vx = end_x - start_x
-    vy = end_y - start_y
-    nx, ny = _normalize(vx, vy)
-    ox, oy = _orthogonal(nx, ny)
-    jitter_deg = float(layout_cfg["turn_angle_jitter_deg"])
-    jitter_scale = total_length * 0.08
-    if geometry_mode == "curve_gentle":
-        jitter_scale = total_length * 0.14
-    elif geometry_mode == "curve_s":
-        jitter_scale = total_length * 0.18
-    elif geometry_mode == "curve_hook":
-        jitter_scale = total_length * 0.22
-    for index in range(1, point_count - 1):
-        t = index / (point_count - 1)
-        base_x = start_x + vx * t
-        base_y = start_y + vy * t
-        if geometry_mode == "curve_gentle":
-            offset = rng.uniform(jitter_scale * 0.35, jitter_scale)
-        elif geometry_mode == "curve_s":
-            direction = -1.0 if index % 2 == 1 else 1.0
-            offset = rng.uniform(jitter_scale * 0.45, jitter_scale) * direction
-        elif geometry_mode == "curve_hook":
-            direction = 1.0 if index == point_count - 2 else 0.35
-            offset = rng.uniform(jitter_scale * 0.4, jitter_scale) * direction
-        else:
-            offset = rng.uniform(-jitter_scale, jitter_scale)
-        angle_jitter = math.radians(rng.uniform(-jitter_deg, jitter_deg))
-        mix_x = ox * math.cos(angle_jitter) - nx * math.sin(angle_jitter)
-        mix_y = oy * math.cos(angle_jitter) - ny * math.sin(angle_jitter)
-        point_x = _clamp(base_x + mix_x * offset, margin, width - margin)
-        point_y = _clamp(base_y + mix_y * offset, margin, height - margin)
-        points.append((point_x, point_y))
-    points.append((end_x, end_y))
-    return points
-
-
-def _catmull_rom_spline(points: list[tuple[float, float]], samples_per_segment: int = 20) -> list[tuple[float, float]]:
-    if len(points) < 3:
-        return points
-    extended = [points[0], *points, points[-1]]
-    curve: list[tuple[float, float]] = []
-    for index in range(1, len(extended) - 2):
-        p0 = extended[index - 1]
-        p1 = extended[index]
-        p2 = extended[index + 1]
-        p3 = extended[index + 2]
-        for step in range(samples_per_segment):
-            t = step / samples_per_segment
-            t2 = t * t
-            t3 = t2 * t
-            x = 0.5 * (
-                (2 * p1[0])
-                + (-p0[0] + p2[0]) * t
-                + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2
-                + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3
-            )
-            y = 0.5 * (
-                (2 * p1[1])
-                + (-p0[1] + p2[1]) * t
-                + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2
-                + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3
-            )
-            curve.append((x, y))
-    curve.append(points[-1])
-    return curve
-
-
-def _arrow_bbox(points: list[tuple[float, float]], line_width: int, head_len: int, head_width: int) -> list[float]:
-    xs = [point[0] for point in points]
-    ys = [point[1] for point in points]
-    pad = max(line_width, head_len, head_width) * 0.8
-    return [min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad]
-
-
-def _draw_arrow(
-    draw: ImageDraw.ImageDraw,
-    points: list[tuple[float, float]],
-    line_width: int,
-    head_len: int,
-    head_width: int,
-    color: tuple[int, int, int],
-    head_style: str,
-    line_style: str,
-    render_style: str,
-    rng: random.Random,
-    geometry_mode: str,
-    double_headed: bool = False,
-) -> None:
-    points = _apply_render_style(points, render_style, rng=rng)
-    line_points = _catmull_rom_spline(points) if geometry_mode != "polyline" else points
-    if line_style == "dashed":
-        for start, end in zip(line_points[:-1], line_points[1:]):
-            dx = end[0] - start[0]
-            dy = end[1] - start[1]
-            segment_length = math.hypot(dx, dy)
-            if segment_length <= 1e-6:
-                continue
-            dash_len = max(line_width * 3, 8)
-            gap_len = max(line_width * 2, 5)
-            ux, uy = dx / segment_length, dy / segment_length
-            cursor = 0.0
-            while cursor < segment_length:
-                dash_end = min(cursor + dash_len, segment_length)
-                p1 = (start[0] + ux * cursor, start[1] + uy * cursor)
-                p2 = (start[0] + ux * dash_end, start[1] + uy * dash_end)
-                draw.line((p1, p2), fill=color, width=line_width)
-                cursor += dash_len + gap_len
-    elif line_style == "dotted":
-        for start, end in zip(line_points[:-1], line_points[1:]):
-            dx = end[0] - start[0]
-            dy = end[1] - start[1]
-            segment_length = math.hypot(dx, dy)
-            if segment_length <= 1e-6:
-                continue
-            step = max(line_width * 2.2, 6)
-            ux, uy = dx / segment_length, dy / segment_length
-            cursor = 0.0
-            radius = max(1, int(line_width * 0.8))
-            while cursor <= segment_length:
-                cx = start[0] + ux * cursor
-                cy = start[1] + uy * cursor
-                draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius), fill=color)
-                cursor += step
-    elif line_style == "marker":
-        draw.line(line_points, fill=color, width=max(line_width, 6), joint="curve")
-        overlay_color = tuple(min(255, channel + 18) for channel in color)
-        draw.line(line_points, fill=overlay_color, width=max(1, line_width // 2), joint="curve")
-    else:
-        draw.line(line_points, fill=color, width=line_width, joint="curve")
-    if len(points) < 2:
-        return
-    head_segments = [(-2, -1)]
-    if double_headed and len(points) >= 2:
-        head_segments.append((1, 0))
-    for tail_index, head_index in head_segments:
-        tail = points[tail_index]
-        head = points[head_index]
-        dx = head[0] - tail[0]
-        dy = head[1] - tail[1]
-        nx, ny = _normalize(dx, dy)
-        ox, oy = _orthogonal(nx, ny)
-        base_x = head[0] - nx * head_len
-        base_y = head[1] - ny * head_len
-        left = (base_x + ox * head_width / 2, base_y + oy * head_width / 2)
-        right = (base_x - ox * head_width / 2, base_y - oy * head_width / 2)
-        if head_style == "open":
-            draw.line((left, head), fill=color, width=max(1, line_width))
-            draw.line((right, head), fill=color, width=max(1, line_width))
-        else:
-            draw.polygon([head, left, right], fill=color)
-
-
-def _sample_arrow_style(style_cfg: dict[str, Any], rng: random.Random) -> dict[str, Any]:
-    profile = _weighted_range_choice(rng, style_cfg["arrow_style_profiles"])
-    return {
-        "line_width": rng.randint(*profile["line_width_range"]),
-        "head_len": rng.randint(*profile["head_length_range"]),
-        "head_width": rng.randint(*profile["head_width_range"]),
-        "head_style": rng.choice(profile["head_styles"]),
-        "line_style": rng.choice(profile["line_styles"]),
-        "render_style": rng.choice(profile["render_styles"]),
-        "color": tuple(rng.choice(profile["palettes"])),
-    }
-
-
-def _scene_style_config(style_cfg: dict[str, Any], scene_mode: str) -> dict[str, Any]:
-    if scene_mode != "single_crop":
-        return style_cfg
-    adjusted = dict(style_cfg)
-    adjusted["distractor_lines_range"] = [0, 5]
-    adjusted["distractor_boxes_range"] = [0, 2]
-    adjusted["text_like_strokes_range"] = [0, 4]
-    adjusted["double_head_distractor_range"] = [0, 2]
-    adjusted["occluder_count_range"] = [0, 2]
-    return adjusted
-
-
-def _sample_arrow(
-    width: int,
-    height: int,
-    cfg: dict[str, Any],
-    existing_boxes: list[list[float]],
-    scene_mode: str,
-    rng: random.Random,
-) -> tuple[ArrowSpec, dict[str, Any]] | None:
-    style_cfg = _scene_style_config(cfg["style"], scene_mode)
-    layout_cfg = cfg["layout"]
-    max_iou = float(layout_cfg["max_instance_iou"])
-    retries = int(layout_cfg["max_generation_retries_per_arrow"])
-    point_count = _sample_point_count(rng, cfg["point_count_bins"])
-
-    for _ in range(retries):
-        geometry_mode = _sample_geometry_mode(rng, cfg["geometry_modes"])
-        size_mode = _sample_arrow_size_mode(rng, cfg["arrow_size_modes"])
-        if scene_mode == "single_hero":
-            size_mode = {"name": "hero", "min_length_ratio": 0.55, "max_length_ratio": 0.92}
-        elif scene_mode == "single_crop":
-            size_mode = {"name": "single_crop", "min_length_ratio": 0.36, "max_length_ratio": 0.74}
-        elif scene_mode == "sparse_large" and rng.random() < 0.7:
-            size_mode = {"name": "large", "min_length_ratio": 0.28, "max_length_ratio": 0.62}
-        points = _sample_arrow_points(width, height, point_count, layout_cfg, geometry_mode, size_mode, rng)
-        arrow_style = _sample_arrow_style(style_cfg, rng)
-        arrow_style["geometry_mode"] = geometry_mode
-        arrow_style["size_mode"] = str(size_mode.get("name", "medium"))
-        line_width = int(arrow_style["line_width"])
-        head_len = int(arrow_style["head_len"])
-        head_width = int(arrow_style["head_width"])
-        bbox = _arrow_bbox(points, line_width, head_len, head_width)
-        bbox = [
-            _clamp(bbox[0], 0, width - 1),
-            _clamp(bbox[1], 0, height - 1),
-            _clamp(bbox[2], 0, width - 1),
-            _clamp(bbox[3], 0, height - 1),
-        ]
-        if bbox[2] - bbox[0] < 6 or bbox[3] - bbox[1] < 6:
-            continue
-        if any(_bbox_iou(bbox, other) > max_iou for other in existing_boxes):
-            continue
-        keypoints = [[round(x, 2), round(y, 2)] for x, y in points]
-        spec = ArrowSpec(
-            bbox=[round(value, 2) for value in bbox],
-            keypoints=keypoints,
-        )
-        return spec, arrow_style
-    return None
-
-
-def _sample_occluders(width: int, height: int, style_cfg: dict[str, Any], rng: random.Random) -> list[list[int]]:
-    occluders: list[list[int]] = []
-    occluder_count = rng.randint(*style_cfg["occluder_count_range"])
-    for _ in range(occluder_count):
-        occ_w = rng.randint(max(width // 30, 10), max(width // 8, 24))
-        occ_h = rng.randint(max(height // 30, 10), max(height // 8, 24))
-        x1 = rng.randint(0, max(width - occ_w - 1, 1))
-        y1 = rng.randint(0, max(height - occ_h - 1, 1))
-        x2 = x1 + occ_w
-        y2 = y1 + occ_h
-        occluders.append([x1, y1, x2, y2])
-    return occluders
-
-
-def _draw_occluders(draw: ImageDraw.ImageDraw, occluders: list[list[int]], rng: random.Random) -> None:
-    for x1, y1, x2, y2 in occluders:
-        gray = rng.randint(210, 245)
-        fill = (gray, gray, gray)
-        draw.rectangle((x1, y1, x2, y2), fill=fill, outline=fill)
-
-
-def _draw_double_head_distractors(draw: ImageDraw.ImageDraw, width: int, height: int, cfg: dict[str, Any], rng: random.Random) -> None:
-    style_cfg = cfg["style"]
-    count = rng.randint(*style_cfg["double_head_distractor_range"])
-    for _ in range(count):
-        sampled = _sample_arrow(width, height, cfg, [], "normal", rng)
-        if sampled is None:
-            continue
-        spec, arrow_style = sampled
-        _draw_arrow(
-            draw,
-            [(float(point[0]), float(point[1])) for point in spec.keypoints],
-            line_width=int(arrow_style["line_width"]),
-            head_len=int(arrow_style["head_len"]),
-            head_width=int(arrow_style["head_width"]),
-            color=tuple(arrow_style["color"]),
-            head_style=str(arrow_style["head_style"]),
-            line_style=str(arrow_style["line_style"]),
-            render_style=str(arrow_style["render_style"]),
-            rng=rng,
-            geometry_mode="polyline",
-            double_headed=True,
-        )
-
-
-def _degrade_image(image: Image.Image, style_cfg: dict[str, Any], rng: random.Random) -> Image.Image:
-    output = image
-    if rng.random() < float(style_cfg["blur_probability"]):
-        radius = rng.uniform(*style_cfg["blur_radius_range"])
-        output = output.filter(ImageFilter.GaussianBlur(radius=radius))
-    if rng.random() < float(style_cfg["noise_probability"]):
-        stddev = rng.uniform(*style_cfg["noise_stddev_range"])
-        pixels = output.load()
-        width, height = output.size
-        for y in range(height):
-            for x in range(width):
-                r, g, b = pixels[x, y]
-                jitter = int(rng.gauss(0, stddev))
-                pixels[x, y] = (
-                    int(_clamp(r + jitter, 0, 255)),
-                    int(_clamp(g + jitter, 0, 255)),
-                    int(_clamp(b + jitter, 0, 255)),
-                )
-    quality = rng.randint(*style_cfg["jpeg_quality_range"])
-    buffer = BytesIO()
-    output.save(buffer, format="JPEG", quality=quality)
-    buffer.seek(0)
-    return Image.open(buffer).convert("RGB")
-
-
-def _generate_sample(split: str, index: int, cfg: dict[str, Any], rng: random.Random, output_dir: Path) -> dict[str, Any]:
-    width, height = _sample_resolution(rng, cfg["resolution_buckets"])
-    scene_mode = _sample_scene_mode(rng, cfg["scene_modes"])
-    style_cfg = _scene_style_config(cfg["style"], scene_mode)
-    image = _make_background(width, height, style_cfg, rng)
-    draw = ImageDraw.Draw(image)
-    _draw_distractors(draw, width, height, style_cfg, rng)
-
-    requested_arrows = _sample_arrow_count_for_scene(rng, cfg["arrow_count_bins"], scene_mode)
-    instances: list[dict[str, Any]] = []
-    existing_boxes: list[list[float]] = []
-
-    for _ in range(requested_arrows):
-        sampled = _sample_arrow(width, height, cfg, existing_boxes, scene_mode, rng)
-        if sampled is None:
-            continue
-        spec, arrow_style = sampled
-        _draw_arrow(
-            draw,
-            [(float(point[0]), float(point[1])) for point in spec.keypoints],
-            line_width=int(arrow_style["line_width"]),
-            head_len=int(arrow_style["head_len"]),
-            head_width=int(arrow_style["head_width"]),
-            color=tuple(arrow_style["color"]),
-            head_style=str(arrow_style["head_style"]),
-            line_style=str(arrow_style["line_style"]),
-            render_style=str(arrow_style["render_style"]),
-            rng=rng,
-            geometry_mode=str(arrow_style.get("geometry_mode", "polyline")),
-        )
-        instances.append({"bbox": spec.bbox, "keypoints": spec.keypoints})
-        existing_boxes.append(spec.bbox)
-
-    if not instances:
-        sampled = _sample_arrow(width, height, cfg, existing_boxes, scene_mode, rng)
-        if sampled is not None:
-            spec, arrow_style = sampled
-            _draw_arrow(
-                draw,
-                [(float(point[0]), float(point[1])) for point in spec.keypoints],
-                line_width=int(arrow_style["line_width"]),
-                head_len=int(arrow_style["head_len"]),
-                head_width=int(arrow_style["head_width"]),
-                color=tuple(arrow_style["color"]),
-                head_style=str(arrow_style["head_style"]),
-                line_style=str(arrow_style["line_style"]),
-                render_style=str(arrow_style["render_style"]),
-                rng=rng,
-                geometry_mode=str(arrow_style.get("geometry_mode", "polyline")),
-            )
-            instances.append({"bbox": spec.bbox, "keypoints": spec.keypoints})
-
-    single_crop_padding_ratio = None
-    if scene_mode == "single_crop" and instances:
-        bbox = instances[0]["bbox"]
-        bbox_w = max(float(bbox[2]) - float(bbox[0]), 1.0)
-        bbox_h = max(float(bbox[3]) - float(bbox[1]), 1.0)
-        single_crop_padding_ratio = round(
-            max((width - bbox_w) / bbox_w, (height - bbox_h) / bbox_h),
-            3,
-        )
-
-    _draw_double_head_distractors(draw, width, height, {"style": style_cfg, "layout": cfg["layout"], "point_count_bins": cfg["point_count_bins"], "geometry_modes": cfg["geometry_modes"], "arrow_size_modes": cfg["arrow_size_modes"]}, rng)
-    occluders = _sample_occluders(width, height, style_cfg, rng)
-    _draw_occluders(draw, occluders, rng)
-    image = _degrade_image(image, style_cfg, rng)
-
-    sample_id = f"{split}_{index:06d}"
-    absolute_image_path = output_dir / "images" / split / f"{sample_id}.jpg"
-    absolute_image_path.parent.mkdir(parents=True, exist_ok=True)
-    image.save(absolute_image_path, quality=95)
-    if output_dir.is_absolute():
-        image_path_value = str(absolute_image_path)
-    else:
-        image_path_value = str(output_dir / "images" / split / f"{sample_id}.jpg")
-
-    return {
-        "sample_id": sample_id,
-        "image_path": image_path_value,
-        "image_width": width,
-        "image_height": height,
-        "scene_mode": scene_mode,
-        "single_crop_padding_ratio": single_crop_padding_ratio,
-        "instances": instances,
-    }
-
-
-def _generate_sample_from_task(task: tuple[str, int, dict[str, Any], str, int]) -> dict[str, Any]:
-    split, index, cfg, output_dir_str, seed = task
-    rng = random.Random(seed)
-    return _generate_sample(split, index, cfg, rng, Path(output_dir_str))
-
-
-def _build_tasks(split: str, count: int, cfg: dict[str, Any], output_dir: Path, base_seed: int) -> list[tuple[str, int, dict[str, Any], str, int]]:
-    return [
-        (split, index, cfg, str(output_dir), base_seed + index)
-        for index in range(count)
-    ]
-
-
-def _generate_records(
+def _generate_split(
+    *,
     split: str,
     count: int,
-    cfg: dict[str, Any],
-    output_dir: Path,
     base_seed: int,
+    sampler: SceneSampler,
+    renderer,
+    exporter: DatasetExporter,
     workers: int,
-) -> list[dict[str, Any]]:
-    tasks = _build_tasks(split, count, cfg, output_dir, base_seed)
+    asset_bank: AssetBank | None,
+) -> list[dict]:
+    def generate_one(index: int) -> dict:
+        rng = random.Random(base_seed + index)
+        sample = sampler.sample(split=split, index=index, rng=rng)
+        image, render_meta = renderer.render(sample=sample, rng=rng, asset_bank=asset_bank)
+        sample.render_meta.update(render_meta)
+        return exporter.save_sample(sample, image)
+
+    indices = list(range(count))
     if workers <= 1:
-        return [_generate_sample_from_task(task) for task in tasks]
-    try:
-        with ProcessPoolExecutor(max_workers=workers) as executor:
-            return list(executor.map(_generate_sample_from_task, tasks, chunksize=8))
-    except (PermissionError, OSError):
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            return list(executor.map(_generate_sample_from_task, tasks))
-
-
-def _write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        for record in records:
-            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
-
-
-def _summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
-    total_instances = sum(len(record["instances"]) for record in records)
-    total_points = sum(len(instance["keypoints"]) for record in records for instance in record["instances"])
-    return {
-        "num_samples": len(records),
-        "num_instances": total_instances,
-        "avg_instances_per_image": round(total_instances / max(len(records), 1), 3),
-        "avg_points_per_instance": round(total_points / max(total_instances, 1), 3),
-    }
+        return [generate_one(index) for index in indices]
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        return list(executor.map(generate_one, indices))
 
 
 def main() -> None:
     args = parse_args()
-    cfg = _load_config(args.config)
+    cfg = load_config(args.config)
     if args.train_samples is not None:
         cfg["train_samples"] = args.train_samples
     if args.val_samples is not None:
@@ -687,42 +76,42 @@ def main() -> None:
         cfg["seed"] = args.seed
     if args.workers is not None:
         cfg["workers"] = args.workers
+    if args.renderer is not None:
+        cfg["renderer"]["name"] = args.renderer
 
     output_dir = Path(cfg["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
-    workers = max(1, int(cfg.get("workers", os.cpu_count() or 1)))
+
+    renderer = build_renderer(cfg)
+    sampler = SceneSampler(cfg=cfg, renderer_name=renderer.name)
+    asset_bank = AssetBank(cfg["assets"])
+    exporter = DatasetExporter(output_dir=output_dir, debug_cfg=cfg["debug"])
+    workers = max(1, int(cfg.get("workers", 1)))
     base_seed = int(cfg["seed"])
 
-    train_records = _generate_records(
-        "train",
-        int(cfg["train_samples"]),
-        cfg,
-        output_dir,
+    train_records = _generate_split(
+        split="train",
+        count=int(cfg["train_samples"]),
         base_seed=base_seed,
+        sampler=sampler,
+        renderer=renderer,
+        exporter=exporter,
         workers=workers,
+        asset_bank=asset_bank if renderer.name == "hybrid" else None,
     )
-    val_records = _generate_records(
-        "val",
-        int(cfg["val_samples"]),
-        cfg,
-        output_dir,
+    val_records = _generate_split(
+        split="val",
+        count=int(cfg["val_samples"]),
         base_seed=base_seed + 1_000_000,
+        sampler=sampler,
+        renderer=renderer,
+        exporter=exporter,
         workers=workers,
+        asset_bank=asset_bank if renderer.name == "hybrid" else None,
     )
 
-    _write_jsonl(output_dir / "train.jsonl", train_records)
-    _write_jsonl(output_dir / "val.jsonl", val_records)
-
-    summary = {
-        "config": cfg,
-        "train": _summarize(train_records),
-        "val": _summarize(val_records),
-    }
-    (output_dir / "manifest.json").write_text(
-        json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    summary = exporter.finalize(train_records=train_records, val_records=val_records, cfg=cfg)
+    print(dumps_summary(summary))
 
 
 if __name__ == "__main__":

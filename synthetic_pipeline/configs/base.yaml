@@ -5,6 +5,32 @@ workers: 20
 train_samples: 20000
 val_samples: 200
 
+renderer:
+  name: procedural
+  hybrid:
+    use_real_background_probability: 1.0
+    context_patch_probability: 0.8
+    context_patches_range: [1, 4]
+    texture_patch_probability: 0.95
+    texture_opacity_range: [0.75, 0.95]
+    draw_procedural_distractors_probability: 0.25
+    procedural_distractor_scale: 0.45
+    degradation_scale: 0.6
+
+assets:
+  processed_jsonl_paths:
+    - data/processed/train.jsonl
+    - data/processed/val.jsonl
+  max_records: null
+  background_min_crop_ratio: 0.35
+  negative_crop_retry: 20
+  texture_patch_size_range: [48, 160]
+  context_patch_size_range: [96, 320]
+
+debug:
+  save_visualizations: false
+  max_saved_samples_per_split: 20
+
 resolution_buckets:
   - min_width: 320
     max_width: 512

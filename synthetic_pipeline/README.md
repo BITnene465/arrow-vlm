@@ -11,9 +11,19 @@
 ## 文件
 
 - `generate_sync_dataset.py`
-  - 生成图像与 JSONL 标注
+  - CLI 入口
+- `scene_sampler.py`
+  - 生成几何骨架与干净标注
+- `asset_bank.py`
+  - 从 `data/processed/*.jsonl` 读取真实资产索引
+- `renderer/procedural.py`
+  - 纯程序渲染基线
+- `renderer/hybrid.py`
+  - 真实背景 / patch / 纹理混合渲染
+- `exporter.py`
+  - 输出 JSONL / manifest / debug 可视化
 - `configs/base.yaml`
-  - 默认合成参数
+  - 默认生成参数
 
 ## 输出目录
 
@@ -58,9 +68,10 @@ python synthetic_pipeline/generate_sync_dataset.py
 
 默认参数：
 
-- `train_samples = 10000`
+- `train_samples = 20000`
 - `val_samples = 200`
-- `workers = 8`
+- `workers = 20`
+- `renderer = procedural`
 
 ## 常用覆盖参数
 
@@ -93,6 +104,13 @@ python synthetic_pipeline/generate_sync_dataset.py \
   --workers 8
 ```
 
+切换到第一版 hybrid renderer：
+
+```bash
+python synthetic_pipeline/generate_sync_dataset.py \
+  --renderer hybrid
+```
+
 换配置文件：
 
 ```bash
@@ -102,7 +120,7 @@ python synthetic_pipeline/generate_sync_dataset.py \
 
 ## 当前第一版生成策略
 
-第一版重点是先生成足量、可控、能直接训练的数据，不追求复杂模块化。
+第一版重点是先生成足量、可控、能直接训练的数据，并把引擎拆成“scene sampler + renderer + asset bank”结构，方便后续继续研究真实感。
 
 当前会覆盖：
 
@@ -156,6 +174,28 @@ python synthetic_pipeline/generate_sync_dataset.py \
   - marker_like
   - handdrawn
 
+## Hybrid Renderer
+
+第一版 hybrid renderer 的原则是：
+
+- 箭头几何和标注仍由程序生成
+- 真实感来自 `data/processed/*.jsonl` 对应的业务图片资产
+- 不直接从最终图像反推标注，避免标签变脏
+
+当前 hybrid 具体会做：
+
+- 从真实业务图裁切背景，作为整张图的 base canvas
+- 采样无箭头负样本 patch，作为上下文块粘贴回画面
+- 从真实箭头实例中估计颜色 / 粗细 / 头部尺度，指导程序箭头渲染
+- 用真实纹理 patch 给程序箭头填充纹理，再做轻量退化
+
+这意味着第一版还不是“直接贴真实箭头 crop”，但已经具备：
+
+- 统一 schema
+- procedural / hybrid 双后端
+- 基于 `data/processed` 的资产索引
+- 对训练栈兼容的 JSONL 导出
+
 ## 训练接入
 
 生成完后，直接用这份配置训练：
@@ -169,7 +209,7 @@ python scripts/train.py --config configs/train_sync_posttrain.yaml
 - `data/sync/train.jsonl`
 - `data/sync/val.jsonl`
 - `finetune.mode: full`
-- `freeze_vision_tower: false`
+- `freeze_vision_tower: true`
 
 ## 备注
 
@@ -192,3 +232,4 @@ python synthetic_pipeline/generate_sync_dataset.py \
 - 已加入双头箭头作为干扰元素
 - 已加入 `single_crop` 单箭头 crop 场景，并混入最终生成分布
 - 已切换到 JSON 数字协议，更贴近 `Qwen3-VL` 官方 grounding 用法
+- 已拆出模块化引擎，并支持 `procedural` / `hybrid` 双 renderer
