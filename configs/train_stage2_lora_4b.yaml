@@ -27,14 +27,11 @@ prompt:
   system_prompt: ""
   user_prompt: ""
   user_prompt_template: |
-    The cropped image may contain multiple arrows.
-    The target arrow is specified by:
+    Target:
     {"label":"{{label}}","bbox_2d":{{bbox_2d}},"keypoints_2d":{{keypoints_2d}}}
-    Output only the complete keypoints_2d of this same arrow as a JSON array of points.
-    Normalize every coordinate to an integer in [0,999].
-    For single_arrow, keypoints must be ordered from tail to head.
-    For double_arrow, keypoints[0] must be the upper-left head and keypoints[-1] the other head.
-    Do not output markdown or extra text.
+    Output only the complete keypoints_2d of this arrow as a JSON array of points in [0,999].
+    For single_arrow: tail to head.
+    For double_arrow: upper-left head first.
 
 data:
   train_path: data/two_stage/stage2/train.jsonl
@@ -71,9 +68,9 @@ lora:
   proj_target_modules: []
 
 train:
-  epochs: 3
-  per_device_batch_size: 2
-  grad_accum_steps: 2
+  epochs: 2
+  per_device_batch_size: 8
+  grad_accum_steps: 1
   gradient_checkpointing: true
   learning_rate: 0.0001
   embed_learning_rate: 0.0001
