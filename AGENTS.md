@@ -100,6 +100,7 @@ python scripts/prepare_data.py \
 - Stage 1：整图输出 `label + bbox + 2-point keypoints`
 - Stage 2：输入单目标 crop 和 crop-local 文本 hint，输出该目标箭头完整点列
 - Stage 2 的 target/prompt 坐标都必须是 crop-local `[0,999]`
+- Stage 2 prompt 采用配置模板渲染，数据记录只保存结构化 `condition`
 - Stage 2 crop 默认 `padding_ratio = 0.5`
 - crop 超出原图边界时，黑边补齐
 

@@ -56,6 +56,18 @@ def build_stage2_prompt(
     )
 
 
+STAGE2_USER_PROMPT_TEMPLATE = (
+    "The cropped image may contain multiple arrows.\n"
+    "The target arrow is specified by:\n"
+    "{\"label\":\"{{label}}\",\"bbox_2d\":{{bbox_2d}},\"keypoints_2d\":{{keypoints_2d}}}\n"
+    "Output only the complete keypoints_2d of this same arrow as a JSON array of points.\n"
+    "Normalize every coordinate to an integer in [0,999].\n"
+    "For single_arrow, keypoints must be ordered from tail to head.\n"
+    "For double_arrow, keypoints[0] must be the upper-left head and keypoints[-1] the other head.\n"
+    "Do not output markdown or extra text."
+)
+
+
 def _encode_stage2_target(keypoints_2d: list[list[int]]) -> str:
     return json.dumps(keypoints_2d, ensure_ascii=False, separators=(",", ":"))
 
@@ -214,11 +226,6 @@ def _build_stage2_record(
         "image_width": int(crop_width),
         "image_height": int(crop_height),
         "system_prompt": "",
-        "user_prompt": build_stage2_prompt(
-            label=instance["label"],
-            bbox_2d=local_bbox_2d,
-            hint_keypoints_2d=local_hint_keypoints_2d,
-        ),
         "target_text": _encode_stage2_target(local_full_keypoints_2d),
         "gt_struct": {
             "task_type": "two_stage_stage2",

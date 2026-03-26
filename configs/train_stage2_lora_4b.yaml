@@ -25,7 +25,16 @@ tokenizer:
 
 prompt:
   system_prompt: ""
-  user_prompt: This prompt is overridden by stage2 sample records.
+  user_prompt: ""
+  user_prompt_template: |
+    The cropped image may contain multiple arrows.
+    The target arrow is specified by:
+    {"label":"{{label}}","bbox_2d":{{bbox_2d}},"keypoints_2d":{{keypoints_2d}}}
+    Output only the complete keypoints_2d of this same arrow as a JSON array of points.
+    Normalize every coordinate to an integer in [0,999].
+    For single_arrow, keypoints must be ordered from tail to head.
+    For double_arrow, keypoints[0] must be the upper-left head and keypoints[-1] the other head.
+    Do not output markdown or extra text.
 
 data:
   train_path: data/two_stage/stage2/train.jsonl

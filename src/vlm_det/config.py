@@ -45,6 +45,7 @@ class TokenizerConfig:
 @dataclass
 class PromptConfig:
     system_prompt: str = ""
+    system_prompt_template: str | None = None
     user_prompt: str = (
         "Detect all arrows and output only a JSON array, with no markdown and no extra text. "
         "Normalize every coordinate to an integer in [0,999]. "
@@ -54,6 +55,7 @@ class PromptConfig:
         "For double_arrow, keypoints[0] and keypoints[-1] are the two head tips. "
         "Each arrow must contain at least 2 points."
     )
+    user_prompt_template: str | None = None
 
 
 @dataclass

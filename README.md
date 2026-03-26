@@ -199,6 +199,7 @@ Stage 2 uses crop-local coordinates. For every target instance:
 - default padding ratio is `0.5`
 - out-of-bound crop area is padded with black pixels
 - prompt hints and training targets are reprojected into the crop-local `[0,999]` coordinate system
+- stage2 JSONL stores structured `condition` fields, and the final prompt is rendered at training time from `prompt.user_prompt_template`
 
 ## Synthetic Post-Training Data
 
