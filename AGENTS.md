@@ -104,6 +104,23 @@ python scripts/prepare_data.py \
 - Stage 2 crop 默认 `padding_ratio = 0.5`
 - crop 超出原图边界时，黑边补齐
 
+## 当前 LoRA 语义
+
+- `lang_target_modules`：语言塔 LoRA 挂载点
+- `vis_target_modules`：视觉塔 LoRA 挂载点
+- `proj_target_modules`：projector LoRA 挂载点
+
+当前约定：
+
+- `freeze_vision_tower: false` 且 `finetune.mode=lora` 时，不是视觉塔全量训练，而是给视觉塔匹配到的线性层挂 LoRA
+- 视觉塔当前默认 LoRA 挂点是：
+  - `attn.qkv`
+  - `attn.proj`
+  - `mlp.linear_fc1`
+  - `mlp.linear_fc2`
+- `train_projector: true` 且 `finetune.mode=lora` 时，不是 projector 全量训练，而是给 projector 匹配到的线性层挂 LoRA
+- `proj_target_modules: []` 表示 projector 下所有匹配到的线性层都可作为 LoRA 挂点
+
 ## 当前经验结论
 
 - 在当前箭头任务上，`Qwen3-VL 2B` 和 `4B` 的训练效果都表现为解冻视觉塔优于冻结视觉塔

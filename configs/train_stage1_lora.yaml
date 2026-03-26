@@ -9,7 +9,7 @@ model:
   trust_remote_code: true
   attn_implementation: flash_attention_2
   freeze_vision_tower: false
-  train_projector: false
+  train_projector: true
   vision_name_substrings:
     - visual
   projector_name_substrings:
@@ -65,6 +65,8 @@ lora:
     - attn.proj
     - mlp.linear_fc1
     - mlp.linear_fc2
+  # Projector LoRA targets; empty means all linear layers matched by projector_name_substrings.
+  proj_target_modules: []
 
 train:
   epochs: 3

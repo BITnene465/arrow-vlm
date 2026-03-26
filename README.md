@@ -332,8 +332,29 @@ Stage 2, 4B:
 python scripts/train.py --config configs/train_stage2_lora_4b.yaml
 ```
 
-Stage 2 records already carry per-sample prompts and targets, so the training
-stack reuses the normal `scripts/train.py` entrypoint.
+Stage 2 records carry structured `condition` fields plus `target_text`. The
+final user prompt is rendered at training time from
+`prompt.user_prompt_template`, so the normal `scripts/train.py` entrypoint can
+still be reused without baking full prompt strings into every sample.
+
+### LoRA Target Groups
+
+LoRA configs now split target modules into three groups:
+
+- `lang_target_modules`: language tower LoRA targets such as
+  `q_proj/k_proj/v_proj/o_proj/gate_proj/up_proj/down_proj`
+- `vis_target_modules`: visual tower LoRA targets such as
+  `attn.qkv/attn.proj/mlp.linear_fc1/mlp.linear_fc2`
+- `proj_target_modules`: projector LoRA targets; an empty list means "all
+  linear layers matched by `projector_name_substrings`"
+
+Behavior:
+
+- `freeze_vision_tower: true`: no visual-tower LoRA is attached
+- `freeze_vision_tower: false`: visual-tower LoRA is attached on
+  `vis_target_modules`
+- `train_projector: true` in LoRA mode: projector LoRA is attached on
+  `proj_target_modules`, rather than fully unfreezing projector weights
 
 ## Two-Stage Inference
 

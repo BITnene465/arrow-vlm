@@ -93,6 +93,7 @@ class LoraConfig:
             "mlp.linear_fc2",
         ]
     )
+    proj_target_modules: list[str] = field(default_factory=list)
 
 
 @dataclass

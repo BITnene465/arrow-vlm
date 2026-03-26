@@ -220,6 +220,23 @@ def build_model_tokenizer_processor(config: ExperimentRuntimeConfig) -> BuildArt
                 f"[builder] enabling LoRA on {len(vis_target_modules)} visual modules.",
                 flush=True,
             )
+        if config.model.train_projector:
+            proj_target_modules = _collect_lora_target_module_names(
+                model,
+                include_name_substrings=config.model.projector_name_substrings,
+                exclude_name_substrings=None,
+                suffixes=config.lora.proj_target_modules,
+            )
+            if not proj_target_modules:
+                raise ValueError(
+                    "train_projector=true was requested in LoRA mode, but no projector target modules were found. "
+                    "Check model.projector_name_substrings and lora.proj_target_modules."
+                )
+            target_modules.extend(proj_target_modules)
+            print(
+                f"[builder] enabling LoRA on {len(proj_target_modules)} projector modules.",
+                flush=True,
+            )
         lora_config = LoraConfig(
             r=config.lora.r,
             lora_alpha=config.lora.alpha,
@@ -234,8 +251,6 @@ def build_model_tokenizer_processor(config: ExperimentRuntimeConfig) -> BuildArt
 
     if config.model.freeze_vision_tower:
         _set_requires_grad_by_name(model, config.model.vision_name_substrings, False)
-    if config.finetune.mode == "lora" and config.model.train_projector:
-        _set_requires_grad_by_name(model, config.model.projector_name_substrings, True)
 
     # embedding层 和 LM Head 需要训练，否则不会有效果
     input_embeddings = model.get_input_embeddings()
