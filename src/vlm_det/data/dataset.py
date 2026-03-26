@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import json
-import re
 from pathlib import Path
 from typing import Any
 
 from PIL import Image
 from torch.utils.data import Dataset
 
+from vlm_det.prompting import render_prompt_template
 from vlm_det.protocol.codec import ArrowCodec
 from vlm_det.utils.io import load_jsonl
 
@@ -15,7 +14,6 @@ from vlm_det.utils.io import load_jsonl
 # that are already part of the trusted dataset, so disable Pillow's
 # decompression bomb guard here as well.
 Image.MAX_IMAGE_PIXELS = None
-TEMPLATE_PATTERN = re.compile(r"{{\s*([a-zA-Z0-9_]+)\s*}}")
 
 
 class ArrowSFTDataset(Dataset):
@@ -69,14 +67,14 @@ class ArrowSFTDataset(Dataset):
         if system_prompt is None:
             template = record.get("system_prompt_template", self.system_prompt_template)
             if template:
-                system_prompt = self._render_prompt_template(template, condition)
+                system_prompt = render_prompt_template(template, condition)
             else:
                 system_prompt = self.system_prompt
         user_prompt = record.get("user_prompt")
         if user_prompt is None:
             template = record.get("user_prompt_template", self.user_prompt_template)
             if template:
-                user_prompt = self._render_prompt_template(template, condition)
+                user_prompt = render_prompt_template(template, condition)
             else:
                 user_prompt = self.user_prompt
         return {
@@ -91,15 +89,3 @@ class ArrowSFTDataset(Dataset):
             "target_text": str(target_text),
             "gt_struct": gt_struct,
         }
-
-    def _render_prompt_template(self, template: str, context: dict[str, Any]) -> str:
-        def _replace(match: re.Match[str]) -> str:
-            key = match.group(1)
-            if key not in context:
-                raise KeyError(f"Prompt template variable {key!r} is missing from condition payload.")
-            value = context[key]
-            if isinstance(value, (list, dict)):
-                return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-            return str(value)
-
-        return TEMPLATE_PATTERN.sub(_replace, template)

@@ -235,9 +235,9 @@ APP_CSS = """
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Launch a Gradio demo for ArrowVLM.")
-    parser.add_argument("--config", default=None, help="Legacy training config path. Prefer environment-driven inference settings.")
+    parser.add_argument("--config", default="configs/infer/infer_one_stage.yaml", help="Inference config path.")
     parser.add_argument("--checkpoint", default=None, help="Checkpoint directory. Falls back to CHECKPOINT_PATH in .env.")
-    parser.add_argument("--env-file", default=None, help="Optional path to a .env file for inference/app settings.")
+    parser.add_argument("--env-file", default=None, help="Optional path to a .env file when checkpoint falls back to CHECKPOINT_PATH.")
     parser.add_argument("--max-new-tokens", type=int, default=None, help="Override inference max_new_tokens for this app session.")
     return parser.parse_args()
 

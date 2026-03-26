@@ -12,9 +12,9 @@ from vlm_det.infer.visualize import format_prediction_summary
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run greedy inference on one image.")
-    parser.add_argument("--config", default=None, help="Legacy training config path. Prefer environment-driven inference settings.")
+    parser.add_argument("--config", default="configs/infer/infer_one_stage.yaml", help="Inference config path.")
     parser.add_argument("--checkpoint", default=None, help="Checkpoint directory. Falls back to CHECKPOINT_PATH in .env.")
-    parser.add_argument("--env-file", default=None, help="Optional path to a .env file for inference/app settings.")
+    parser.add_argument("--env-file", default=None, help="Optional path to a .env file when checkpoint falls back to CHECKPOINT_PATH.")
     parser.add_argument("--image", required=True)
     parser.add_argument("--max-new-tokens", type=int, default=None, help="Override inference max_new_tokens for this run.")
     parser.add_argument("--output-dir", default=None, help="Optional directory to save parsed prediction files.")

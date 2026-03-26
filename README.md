@@ -233,14 +233,14 @@ instance-order rule:
 ### Single-GPU LoRA
 
 ```bash
-python scripts/train.py --config configs/train_lora.yaml
+python scripts/train.py --config configs/train/train_lora.yaml
 ```
 
 Add a run id to make the output directory and W&B run traceable:
 
 ```bash
 python scripts/train.py \
-  --config configs/train_lora.yaml \
+  --config configs/train/train_lora.yaml \
   --run-id 20260325-exp01
 ```
 
@@ -253,7 +253,7 @@ Override the vision-tower freezing behavior for one run:
 
 ```bash
 python scripts/train.py \
-  --config configs/train_full_ft.yaml \
+  --config configs/train/train_full_ft.yaml \
   --run-id 20260325-exp01 \
   --freeze-vision-tower false
 ```
@@ -262,7 +262,7 @@ Gradient checkpointing is enabled by default. Override it explicitly if you want
 
 ```bash
 python scripts/train.py \
-  --config configs/train_full_ft.yaml \
+  --config configs/train/train_full_ft.yaml \
   --run-id 20260325-exp01 \
   --gradient-checkpointing false
 ```
@@ -270,13 +270,13 @@ python scripts/train.py \
 ### Single-GPU Full Fine-Tuning
 
 ```bash
-python scripts/train.py --config configs/train_full_ft.yaml
+python scripts/train.py --config configs/train/train_full_ft.yaml
 ```
 
 ### Single-GPU Synthetic Post-Training
 
 ```bash
-python scripts/train.py --config configs/train_sync_posttrain.yaml
+python scripts/train.py --config configs/train/train_sync_posttrain.yaml
 ```
 
 ### Multi-GPU
@@ -284,13 +284,13 @@ python scripts/train.py --config configs/train_sync_posttrain.yaml
 LoRA:
 
 ```bash
-torchrun --nproc_per_node=2 scripts/train.py --config configs/train_lora.yaml
+torchrun --nproc_per_node=2 scripts/train.py --config configs/train/train_lora.yaml
 ```
 
 Full FT:
 
 ```bash
-torchrun --nproc_per_node=2 scripts/train.py --config configs/train_full_ft.yaml
+torchrun --nproc_per_node=2 scripts/train.py --config configs/train/train_full_ft.yaml
 ```
 
 ### Stage-2 SFT From An Earlier Checkpoint
@@ -300,7 +300,7 @@ weights without restoring optimizer, scheduler, RNG, or global step:
 
 ```bash
 python scripts/train.py \
-  --config configs/train_full_ft.yaml \
+  --config configs/train/train_full_ft.yaml \
   --init-from outputs/qwen3vl-post/2b/checkpoints/best
 ```
 
@@ -311,25 +311,25 @@ Use `--resume-from` only when you want to continue the same interrupted run.
 Stage 1, 2B:
 
 ```bash
-python scripts/train.py --config configs/train_stage1_lora.yaml
+python scripts/train.py --config configs/train/train_stage1_lora.yaml
 ```
 
 Stage 1, 4B:
 
 ```bash
-python scripts/train.py --config configs/train_stage1_lora_4b.yaml
+python scripts/train.py --config configs/train/train_stage1_lora_4b.yaml
 ```
 
 Stage 2, 2B:
 
 ```bash
-python scripts/train.py --config configs/train_stage2_lora.yaml
+python scripts/train.py --config configs/train/train_stage2_lora.yaml
 ```
 
 Stage 2, 4B:
 
 ```bash
-python scripts/train.py --config configs/train_stage2_lora_4b.yaml
+python scripts/train.py --config configs/train/train_stage2_lora_4b.yaml
 ```
 
 Stage 2 records carry structured `condition` fields plus `target_text`. The
@@ -358,17 +358,18 @@ Behavior:
 
 ## Two-Stage Inference
 
-Run the two-stage pipeline with separate Stage 1 and Stage 2 checkpoints:
+Run the two-stage pipeline with an infer config plus separate Stage 1 / Stage 2 checkpoints:
 
 ```bash
 python scripts/infer_two_stage.py \
-  --stage1-config configs/train_stage1_lora_4b.yaml \
+  --config configs/infer/infer_two_stage.yaml \
   --stage1-checkpoint outputs/qwen3vl-s1-lora/4b/checkpoints/best \
-  --stage2-config configs/train_stage2_lora_4b.yaml \
   --stage2-checkpoint outputs/qwen3vl-s2-lora/4b/checkpoints/best \
   --image path/to/example.png \
   --output-dir outputs/two_stage_demo
 ```
+
+If you only want to inspect Stage 1, omit `--stage2-checkpoint`.
 
 Two-stage inference flow:
 
@@ -383,11 +384,22 @@ Launch the two-stage Gradio app with:
 
 ```bash
 python app/demo_two_stage.py \
-  --stage1-config configs/train_stage1_lora_4b.yaml \
+  --config configs/infer/infer_two_stage.yaml \
   --stage1-checkpoint outputs/qwen3vl-s1-lora/4b/checkpoints/best \
-  --stage2-config configs/train_stage2_lora_4b.yaml \
   --stage2-checkpoint outputs/qwen3vl-s2-lora/4b/checkpoints/best
 ```
+
+`demo_two_stage.py` 固定展示三张图：
+
+- 输入图
+- Stage1 Overlay
+- Stage2 / Final Overlay
+
+如果不提供 `--stage2-checkpoint`，页面会进入 Stage1-only 模式：
+
+- 状态区会明确提示未加载 Stage2
+- 第二张图显示 Stage1 可视化
+- 第三张图留空
 
 ### Two-Stage Training Launcher
 
@@ -399,8 +411,8 @@ python scripts/train_two_stage.py \
   --stage1-freeze-vision-tower false \
   --stage2-freeze-vision-tower true \
   --stage2-gradient-checkpointing true \
-  --stage1-config configs/train_sync_posttrain.yaml \
-  --stage2-config configs/train_full_ft.yaml
+  --stage1-config configs/train/train_sync_posttrain.yaml \
+  --stage2-config configs/train/train_full_ft.yaml
 ```
 
 Use LoRA for stage 2 if needed:
@@ -408,8 +420,8 @@ Use LoRA for stage 2 if needed:
 ```bash
 python scripts/train_two_stage.py \
   --run-id 20260325-exp01 \
-  --stage1-config configs/train_sync_posttrain.yaml \
-  --stage2-config configs/train_lora.yaml
+  --stage1-config configs/train/train_sync_posttrain.yaml \
+  --stage2-config configs/train/train_lora.yaml
 ```
 
 Preview commands without starting training:
@@ -449,16 +461,20 @@ The default prompt asks the model to:
 
 ## Inference
 
-Create a local `.env` from the template and fill at least the checkpoint path:
+One-stage inference uses an infer config instead of a training YAML.
+
+Create a local `.env` only if you want `CHECKPOINT_PATH` fallback:
 
 ```bash
 cp .env.example .env
 ```
 
-The inference CLI reads `.env` directly and does not require a training YAML:
+Run inference with:
 
 ```bash
 python scripts/infer.py \
+  --config configs/infer/infer_one_stage.yaml \
+  --checkpoint outputs/your_experiment/checkpoints/best \
   --max-new-tokens 4096 \
   --image /path/to/figure.jpg
 ```
@@ -468,13 +484,11 @@ This saves:
 - `*.prediction.json`
 - `*.raw.txt`
 
-if `INFER_OUTPUT_DIR` is set in `.env`, or if you pass `--output-dir`.
-
-Override the checkpoint or env file explicitly when needed:
+or let the checkpoint fall back to `CHECKPOINT_PATH` in `.env`:
 
 ```bash
 python scripts/infer.py \
-  --checkpoint outputs/your_experiment/checkpoints/best \
+  --config configs/infer/infer_one_stage.yaml \
   --env-file /path/to/.env \
   --max-new-tokens 4096 \
   --image /path/to/figure.jpg \
@@ -485,45 +499,30 @@ The CLI also prints the raw decoded model text to stdout so you can inspect stri
 
 ## App
 
-Launch the Gradio app with the same `.env` settings:
+Launch the one-stage Gradio app with the infer config:
 
 ```bash
-python app/demo.py
+python app/demo.py \
+  --config configs/infer/infer_one_stage.yaml \
+  --checkpoint outputs/your_experiment/checkpoints/best
 ```
 
 or override `max_new_tokens` for the whole app session:
 
 ```bash
-python app/demo.py --max-new-tokens 4096
+python app/demo.py \
+  --config configs/infer/infer_one_stage.yaml \
+  --checkpoint outputs/your_experiment/checkpoints/best \
+  --max-new-tokens 4096
 ```
 
-Useful inference/app env vars:
+Inference configs only store prompt/template and inference-time settings.
+They do not store checkpoint paths or base-model paths.
 
-- `CHECKPOINT_PATH`
-- `INFER_OUTPUT_DIR`
-- `INFER_DEVICE`
-- `APP_HOST`
-- `APP_PORT`
-- `APP_SHARE`
+- one-stage infer config: `configs/infer/infer_one_stage.yaml`
+- two-stage infer config: `configs/infer/infer_two_stage.yaml`
 
-Optional overrides only when needed:
-
-- `MODEL_NAME_OR_PATH`
-- `MODEL_MIN_PIXELS`
-- `MODEL_MAX_PIXELS`
-- `SYSTEM_PROMPT`
-- `USER_PROMPT`
-- `INFER_MAX_NEW_TOKENS`
-- `INFER_NUM_BEAMS`
-- `INFER_DO_SAMPLE`
-- `INFER_USE_CACHE`
-- `INFER_TEMPERATURE`
-- `INFER_TOP_P`
-- `INFER_TOP_K`
-
-`infer.py` and `app/demo.py` share the same environment-driven loader. They fall back to `checkpoint/meta.json` for structure-sensitive settings such as `finetune.mode`, LoRA parameters, prompt defaults, and eval defaults, so you normally do not need a training config file during inference.
-
-Training configuration is separate: `scripts/train.py` only reads YAML config files and does not consume `.env`.
+Training configuration is separate: `scripts/train.py` still only reads training YAML files.
 
 ## Evaluation and Debugging
 
@@ -531,7 +530,7 @@ To inspect a few decoded validation samples:
 
 ```bash
 python scripts/debug_eval.py \
-  --config configs/train_sync_posttrain.yaml \
+  --config configs/train/train_sync_posttrain.yaml \
   --checkpoint outputs/your_experiment/checkpoints/last \
   --split val \
   --num-samples 1 \

@@ -7,9 +7,10 @@ from typing import Any
 import torch
 from PIL import Image
 
-from vlm_det.config import ExperimentRuntimeConfig, load_config
-from vlm_det.infer.config import InferenceSettings, load_inference_settings
+from vlm_det.config import ExperimentRuntimeConfig
+from vlm_det.infer.config import InferenceSettings, OneStageInferenceConfig, load_inference_settings
 from vlm_det.modeling.builder import BuildArtifacts, build_model_tokenizer_processor
+from vlm_det.prompting import build_chat_prompt
 from vlm_det.protocol.codec import ArrowCodec
 from vlm_det.utils.checkpoint import load_training_checkpoint
 from vlm_det.utils.distributed import reset_model_runtime_state, unwrap_model
@@ -154,32 +155,11 @@ class ArrowInferenceRunner:
         return model_inputs, prompt_length
 
     def _build_prompt(self) -> str:
-        messages: list[dict[str, Any]] = []
-        if self.config.prompt.system_prompt.strip():
-            messages.append(
-                {
-                    "role": "system",
-                    "content": [{"type": "text", "text": self.config.prompt.system_prompt}],
-                }
-            )
-        messages.append(
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": self.config.prompt.user_prompt},
-                ],
-            }
-        )
-        template_owner = (
-            self.artifacts.processor
-            if hasattr(self.artifacts.processor, "apply_chat_template")
-            else self.artifacts.tokenizer
-        )
-        return template_owner.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
+        return build_chat_prompt(
+            self.artifacts.processor,
+            self.artifacts.tokenizer,
+            system_prompt=self.config.prompt.system_prompt,
+            user_prompt=self.config.prompt.user_prompt,
         )
 
 
@@ -193,17 +173,25 @@ def load_inference_runner(
     checkpoint_path: str | Path | None = None,
     *,
     config_path: str | Path | None = None,
+    infer_config: OneStageInferenceConfig | None = None,
     env_file: str | Path | None = None,
     model_name_or_path: str | None = None,
     device_name: str | None = None,
 ) -> ArrowInferenceRunner:
-    if config_path is not None:
-        config = load_config(config_path)
-        settings = load_inference_settings(checkpoint_path=checkpoint_path, env_file=env_file)
-        settings.runtime = config
+    if infer_config is None:
+        settings = load_inference_settings(
+            checkpoint_path=checkpoint_path,
+            config_path=config_path,
+            env_file=env_file,
+        )
     else:
-        settings = load_inference_settings(checkpoint_path=checkpoint_path, env_file=env_file)
-        config = settings.runtime
+        settings = load_inference_settings(
+            checkpoint_path=checkpoint_path,
+            config_path=None,
+            env_file=env_file,
+            infer_config=infer_config,
+        )
+    config = settings.runtime
 
     if model_name_or_path is not None:
         config.model.model_name_or_path = model_name_or_path

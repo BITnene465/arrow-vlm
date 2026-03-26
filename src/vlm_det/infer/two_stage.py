@@ -7,17 +7,22 @@ from typing import Any
 import torch
 from PIL import Image
 
-from vlm_det.config import ExperimentRuntimeConfig, load_config
+from vlm_det.config import ExperimentRuntimeConfig
 from vlm_det.data.two_stage import (
     build_padded_crop,
-    build_stage2_prompt,
     quantize_bbox_2d,
     quantize_keypoints_2d,
     to_crop_local_bbox,
     to_crop_local_keypoints,
 )
+from vlm_det.infer.config import (
+    TwoStageInferenceConfig,
+    build_runtime_from_two_stage_infer_config,
+    load_two_stage_inference_config,
+)
 from vlm_det.infer.runner import ArrowInferenceRunner, _resolve_device
 from vlm_det.modeling.builder import BuildArtifacts, build_model_tokenizer_processor
+from vlm_det.prompting import build_chat_prompt, render_prompt_template
 from vlm_det.protocol.keypoint_codec import KeypointSequenceCodec
 from vlm_det.utils.checkpoint import load_training_checkpoint
 from vlm_det.utils.distributed import reset_model_runtime_state, unwrap_model
@@ -47,10 +52,13 @@ class Stage2KeypointInferenceRunner:
     ) -> tuple[str, dict[str, Any]]:
         pil_image = image.convert("RGB")
         width, height = pil_image.size
-        prompt = build_stage2_prompt(
-            label=label,
-            bbox_2d=bbox_2d,
-            hint_keypoints_2d=hint_keypoints_2d,
+        prompt = render_prompt_template(
+            self.config.prompt.user_prompt_template,
+            {
+                "label": label,
+                "bbox_2d": bbox_2d,
+                "keypoints_2d": hint_keypoints_2d,
+            },
         )
         model_inputs, input_context_length = self._prepare_inputs(pil_image, prompt=prompt)
         raw_model = unwrap_model(self.artifacts.model)
@@ -146,8 +154,14 @@ class Stage2KeypointInferenceRunner:
         }
 
     def _prepare_inputs(self, image: Image.Image, *, prompt: str) -> tuple[dict[str, torch.Tensor], int]:
+        prompt_text = build_chat_prompt(
+            self.artifacts.processor,
+            self.artifacts.tokenizer,
+            system_prompt=self.config.prompt.system_prompt,
+            user_prompt=prompt,
+        )
         processor_kwargs: dict[str, Any] = {
-            "text": [prompt],
+            "text": [prompt_text],
             "images": [image],
             "return_tensors": "pt",
         }
@@ -167,7 +181,7 @@ class Stage2KeypointInferenceRunner:
 @dataclass
 class TwoStageInferenceRunner:
     stage1_runner: ArrowInferenceRunner
-    stage2_runner: Stage2KeypointInferenceRunner
+    stage2_runner: Stage2KeypointInferenceRunner | None
     padding_ratio: float = 0.5
 
     def predict(
@@ -194,6 +208,15 @@ class TwoStageInferenceRunner:
         final_instances: list[dict[str, Any]] = []
         stage2_results: list[dict[str, Any]] = []
         for index, instance in enumerate(stage1_prediction.get("instances", [])):
+            if self.stage2_runner is None:
+                final_instances.append(
+                    {
+                        "label": instance["label"],
+                        "bbox": [float(value) for value in instance["bbox"]],
+                        "keypoints": [[float(x), float(y)] for x, y in instance["keypoints"]],
+                    }
+                )
+                continue
             crop_image, crop_box = build_padded_crop(
                 pil_image,
                 bbox=instance["bbox"],
@@ -260,12 +283,12 @@ class TwoStageInferenceRunner:
 
 def _load_stage2_runner(
     *,
-    config_path: str | Path,
     checkpoint_path: str | Path,
+    infer_config: Any,
     device: torch.device,
     model_name_or_path: str | None = None,
 ) -> Stage2KeypointInferenceRunner:
-    config = load_config(config_path)
+    config = build_runtime_from_two_stage_infer_config(checkpoint_path, infer_config)
     if model_name_or_path is not None:
         config.model.model_name_or_path = model_name_or_path
         config.model.remote_model_name_or_path = model_name_or_path
@@ -290,32 +313,33 @@ def _load_stage2_runner(
 
 def load_two_stage_inference_runner(
     *,
-    stage1_config_path: str | Path,
+    config_path: str | Path,
     stage1_checkpoint_path: str | Path,
-    stage2_config_path: str | Path,
-    stage2_checkpoint_path: str | Path,
+    stage2_checkpoint_path: str | Path | None = None,
     device_name: str | None = None,
     stage1_model_name_or_path: str | None = None,
     stage2_model_name_or_path: str | None = None,
-    padding_ratio: float = 0.5,
 ) -> TwoStageInferenceRunner:
     device = _resolve_device(device_name)
     from vlm_det.infer.runner import load_inference_runner
 
+    infer_config: TwoStageInferenceConfig = load_two_stage_inference_config(config_path)
     loaded_stage1_runner = load_inference_runner(
         checkpoint_path=stage1_checkpoint_path,
-        config_path=stage1_config_path,
+        infer_config=infer_config.stage1,
         model_name_or_path=stage1_model_name_or_path,
         device_name=device_name,
     )
-    stage2_runner = _load_stage2_runner(
-        config_path=stage2_config_path,
-        checkpoint_path=stage2_checkpoint_path,
-        device=device,
-        model_name_or_path=stage2_model_name_or_path,
-    )
+    stage2_runner = None
+    if stage2_checkpoint_path is not None:
+        stage2_runner = _load_stage2_runner(
+            checkpoint_path=stage2_checkpoint_path,
+            infer_config=infer_config.stage2,
+            device=device,
+            model_name_or_path=stage2_model_name_or_path,
+        )
     return TwoStageInferenceRunner(
         stage1_runner=loaded_stage1_runner,
         stage2_runner=stage2_runner,
-        padding_ratio=padding_ratio,
+        padding_ratio=infer_config.padding_ratio,
     )

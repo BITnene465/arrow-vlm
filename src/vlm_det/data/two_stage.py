@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import math
 import os
 import random
@@ -35,42 +34,9 @@ def _build_stage1_instance(instance: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_stage2_prompt(
-    *,
-    label: str,
-    bbox_2d: list[int],
-    hint_keypoints_2d: list[list[int]],
-) -> str:
-    hint_payload = {
-        "label": label,
-        "bbox_2d": bbox_2d,
-        "keypoints_2d": hint_keypoints_2d,
-    }
-    hint_json = json.dumps(hint_payload, ensure_ascii=False, separators=(",", ":"))
-    return (
-        "The cropped image may contain multiple arrows.\n"
-        f"The target arrow is specified by:\n{hint_json}\n"
-        "Output only the complete keypoints_2d of this same arrow as a JSON array of points.\n"
-        "Normalize every coordinate to an integer in [0,999].\n"
-        "For single_arrow, keypoints must be ordered from tail to head.\n"
-        "For double_arrow, keypoints[0] must be the upper-left head and keypoints[-1] the other head.\n"
-        "Do not output markdown or extra text."
-    )
-
-
-STAGE2_USER_PROMPT_TEMPLATE = (
-    "The cropped image may contain multiple arrows.\n"
-    "The target arrow is specified by:\n"
-    "{\"label\":\"{{label}}\",\"bbox_2d\":{{bbox_2d}},\"keypoints_2d\":{{keypoints_2d}}}\n"
-    "Output only the complete keypoints_2d of this same arrow as a JSON array of points.\n"
-    "Normalize every coordinate to an integer in [0,999].\n"
-    "For single_arrow, keypoints must be ordered from tail to head.\n"
-    "For double_arrow, keypoints[0] must be the upper-left head and keypoints[-1] the other head.\n"
-    "Do not output markdown or extra text."
-)
-
-
 def _encode_stage2_target(keypoints_2d: list[list[int]]) -> str:
+    import json
+
     return json.dumps(keypoints_2d, ensure_ascii=False, separators=(",", ":"))
 
 

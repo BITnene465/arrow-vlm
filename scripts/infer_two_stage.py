@@ -12,15 +12,13 @@ from vlm_det.infer.visualize import draw_prediction, format_prediction_summary
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run two-stage arrow inference on one image.")
-    parser.add_argument("--stage1-config", required=True)
+    parser.add_argument("--config", default="configs/infer/infer_two_stage.yaml", help="Two-stage inference config path.")
     parser.add_argument("--stage1-checkpoint", required=True)
-    parser.add_argument("--stage2-config", required=True)
-    parser.add_argument("--stage2-checkpoint", required=True)
+    parser.add_argument("--stage2-checkpoint", default=None)
     parser.add_argument("--stage1-model", default=None)
     parser.add_argument("--stage2-model", default=None)
     parser.add_argument("--device", default=None)
     parser.add_argument("--image", required=True)
-    parser.add_argument("--padding-ratio", type=float, default=0.5)
     parser.add_argument("--stage1-max-new-tokens", type=int, default=None)
     parser.add_argument("--stage2-max-new-tokens", type=int, default=None)
     parser.add_argument("--output-dir", default=None)
@@ -39,17 +37,17 @@ def _save_outputs(output_dir: Path, image_path: Path, report: dict[str, object],
 
 def main() -> None:
     args = parse_args()
+    from vlm_det.infer.config import load_two_stage_inference_config
     from vlm_det.infer.two_stage import load_two_stage_inference_runner
 
+    infer_config = load_two_stage_inference_config(args.config)
     runner = load_two_stage_inference_runner(
-        stage1_config_path=args.stage1_config,
+        config_path=args.config,
         stage1_checkpoint_path=args.stage1_checkpoint,
-        stage2_config_path=args.stage2_config,
         stage2_checkpoint_path=args.stage2_checkpoint,
         device_name=args.device,
         stage1_model_name_or_path=args.stage1_model,
         stage2_model_name_or_path=args.stage2_model,
-        padding_ratio=args.padding_ratio,
     )
     image_path = Path(args.image)
     image = Image.open(image_path).convert("RGB")
@@ -62,9 +60,10 @@ def main() -> None:
     final_prediction = report["final_prediction"]
     print("\n[summary]")
     print(format_prediction_summary(final_prediction))
-    if args.output_dir is not None:
+    output_dir = args.output_dir or infer_config.output_dir
+    if output_dir is not None:
         overlay = draw_prediction(image, final_prediction)
-        report_path, overlay_path = _save_outputs(Path(args.output_dir), image_path, report, overlay)
+        report_path, overlay_path = _save_outputs(Path(output_dir), image_path, report, overlay)
         print(f"Saved report to: {report_path}")
         print(f"Saved overlay to: {overlay_path}")
 

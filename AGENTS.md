@@ -57,11 +57,11 @@ python scripts/prepare_data.py \
 - 单阶段训练：`scripts/train.py`
 - 两阶段训练：`scripts/train_two_stage.py`
 - 当前主要配置：
-  - `configs/train_full_ft.yaml`
-  - `configs/train_full_ft_4b.yaml`
-  - `configs/train_lora.yaml`
-  - `configs/train_lora_4b.yaml`
-  - `configs/train_sync_posttrain.yaml`
+  - `configs/train/train_full_ft.yaml`
+  - `configs/train/train_full_ft_4b.yaml`
+  - `configs/train/train_lora.yaml`
+  - `configs/train/train_lora_4b.yaml`
+  - `configs/train/train_sync_posttrain.yaml`
 
 默认命名规则：
 
@@ -80,7 +80,9 @@ python scripts/prepare_data.py \
 - 两阶段 CLI：`scripts/infer_two_stage.py`
 - Demo：`app/demo.py`
 - 两阶段 Demo：`app/demo_two_stage.py`
-- 推理配置走 `.env` / 环境变量，不走训练 YAML
+- 推理配置走独立 infer config，不复用训练 YAML
+- one-stage infer config：`configs/infer/infer_one_stage.yaml`
+- two-stage infer config：`configs/infer/infer_two_stage.yaml`
 - demo 现在支持切换：
   - base model
   - checkpoint
@@ -89,11 +91,11 @@ python scripts/prepare_data.py \
 
 - 两阶段数据准备：`scripts/prepare_two_stage_data.py`
 - Stage 1 训练配置：
-  - `configs/train_stage1_lora.yaml`
-  - `configs/train_stage1_lora_4b.yaml`
+  - `configs/train/train_stage1_lora.yaml`
+  - `configs/train/train_stage1_lora_4b.yaml`
 - Stage 2 训练配置：
-  - `configs/train_stage2_lora.yaml`
-  - `configs/train_stage2_lora_4b.yaml`
+  - `configs/train/train_stage2_lora.yaml`
+  - `configs/train/train_stage2_lora_4b.yaml`
 
 当前两阶段约定：
 
@@ -101,6 +103,7 @@ python scripts/prepare_data.py \
 - Stage 2：输入单目标 crop 和 crop-local 文本 hint，输出该目标箭头完整点列
 - Stage 2 的 target/prompt 坐标都必须是 crop-local `[0,999]`
 - Stage 2 prompt 采用配置模板渲染，数据记录只保存结构化 `condition`
+- `demo_two_stage` 可在不提供 Stage 2 checkpoint 的情况下直接做 Stage 1 可视化检查
 - Stage 2 crop 默认 `padding_ratio = 0.5`
 - crop 超出原图边界时，黑边补齐
 

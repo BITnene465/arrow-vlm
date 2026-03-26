@@ -1,0 +1,46 @@
+stage1:
+  model:
+    min_pixels: 200704
+    max_pixels: 1048576
+  prompt:
+    system_prompt: ""
+    user_prompt: |
+      Detect all arrows and output only a JSON array, with no markdown and no extra text.
+      Normalize every coordinate to an integer in [0,999].
+      Each item must be either {"label":"single_arrow","bbox_2d":[x1,y1,x2,y2],"keypoints_2d":[[x,y],[x,y]]}
+      or {"label":"double_arrow","bbox_2d":[x1,y1,x2,y2],"keypoints_2d":[[x,y],[x,y]]}.
+      For single_arrow, keypoints must be ordered from tail to head.
+      For double_arrow, keypoints[0] must be the upper-left head and keypoints[1] the other head.
+      Output exactly two keypoints for each arrow.
+  eval:
+    max_new_tokens: 2048
+    num_beams: 1
+    do_sample: false
+    use_cache: true
+
+stage2:
+  model:
+    min_pixels: 200704
+    max_pixels: 1048576
+  prompt:
+    system_prompt: ""
+    user_prompt_template: |
+      Target:
+      {"label":"{{label}}","bbox_2d":{{bbox_2d}},"keypoints_2d":{{keypoints_2d}}}
+      Output only the complete keypoints_2d of this arrow as a JSON array of points in [0,999].
+      For single_arrow: tail to head.
+      For double_arrow: upper-left head first.
+  eval:
+    max_new_tokens: 256
+    num_beams: 1
+    do_sample: false
+    use_cache: true
+
+padding_ratio: 0.5
+
+app:
+  host: 127.0.0.1
+  port: 7861
+  share: false
+
+output_dir: null
