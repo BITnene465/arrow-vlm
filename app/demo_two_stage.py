@@ -144,10 +144,15 @@ def build_demo(args: argparse.Namespace):
         instances = final_prediction.get("instances", [])
         stage1_prediction = report["stage1_report"]["strict"]["prediction"] or report["stage1_report"]["lenient"]["prediction"]
         stage1_count = len(stage1_prediction.get("instances", [])) if stage1_prediction else 0
+        stage1_recovered = bool(report["stage1_report"]["lenient"].get("recovered_prefix", False))
+        stage2_recovered = sum(
+            1 for item in report["stage2_results"] if item["report"]["lenient"].get("recovered_prefix", False)
+        )
         return (
             f"Stage1 detected {stage1_count} arrows. "
             f"Final output contains {len(instances)} arrows. "
-            f"Stage2 refined {len(report['stage2_results'])} crops."
+            f"Stage2 refined {len(report['stage2_results'])} crops. "
+            f"Recovered prefixes: stage1={stage1_recovered}, stage2={stage2_recovered}."
         )
 
     def run_inference(

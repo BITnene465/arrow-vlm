@@ -91,9 +91,15 @@ class Stage2KeypointInferenceRunner:
 
         lenient_prediction: dict[str, Any] | None = None
         lenient_error: str | None = None
+        lenient_recovered_prefix = False
         strict_error: str | None = None
         try:
-            lenient_prediction = self.codec.decode(decoded, image_width=width, image_height=height)
+            lenient_prediction, lenient_meta = self.codec.decode_with_meta(
+                decoded,
+                image_width=width,
+                image_height=height,
+            )
+            lenient_recovered_prefix = bool(lenient_meta.get("recovered_prefix", False))
         except Exception as exc:  # noqa: BLE001
             lenient_error = str(exc)
 
@@ -124,11 +130,13 @@ class Stage2KeypointInferenceRunner:
                 "ok": lenient_error is None,
                 "prediction": lenient_prediction,
                 "error": lenient_error,
+                "recovered_prefix": lenient_recovered_prefix,
             },
             "strict": {
                 "ok": strict_error is None,
                 "prediction": lenient_prediction if strict_error is None else None,
                 "error": strict_error,
+                "recovered_prefix": False,
             },
             "condition": {
                 "label": label,

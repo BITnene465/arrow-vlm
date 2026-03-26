@@ -76,6 +76,7 @@ def main() -> None:
         "\n".join(
             [
                 f"Lenient parse ok: {parse_report['lenient']['ok']}",
+                f"Lenient recovered_prefix: {parse_report['lenient']['recovered_prefix']}",
                 f"Strict parse ok: {parse_report['strict']['ok']}",
             ]
         )

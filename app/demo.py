@@ -304,6 +304,10 @@ def _render_status_panel(
         <span class="status-value">{strict_badge}</span>
       </div>
       <div class="status-card">
+        <span class="status-label">Recovered Prefix</span>
+        <span class="status-value">{'<span class="badge ok">YES</span>' if lenient["recovered_prefix"] else '<span class="badge fail">NO</span>'}</span>
+      </div>
+      <div class="status-card">
         <span class="status-label">Generated Tokens</span>
         <span class="status-value">{generation["generated_tokens"]}</span>
       </div>

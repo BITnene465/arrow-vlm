@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from vlm_det.protocol.codec import JSON_FENCE_PATTERN
+from vlm_det.protocol.codec import JSON_FENCE_PATTERN, extract_balanced_json, recover_truncated_json_array
 
 
 @dataclass
@@ -38,7 +38,23 @@ class KeypointSequenceCodec:
         *,
         strict: bool = False,
     ) -> dict[str, Any]:
-        payload = self._parse_json_payload(text, strict=strict)
+        parsed, _parse_meta = self.decode_with_meta(
+            text,
+            image_width=image_width,
+            image_height=image_height,
+            strict=strict,
+        )
+        return parsed
+
+    def decode_with_meta(
+        self,
+        text: str,
+        image_width: int,
+        image_height: int,
+        *,
+        strict: bool = False,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        payload, recovered_prefix = self._parse_json_payload(text, strict=strict)
         if isinstance(payload, dict):
             payload = payload.get("keypoints_2d")
         if not isinstance(payload, list):
@@ -62,10 +78,13 @@ class KeypointSequenceCodec:
         report = self.validate_points(keypoints_2d)
         if not report.valid:
             raise ValueError("; ".join(report.errors))
-        return {
-            "keypoints": keypoints,
-            "keypoints_2d": keypoints_2d,
-        }
+        return (
+            {
+                "keypoints": keypoints,
+                "keypoints_2d": keypoints_2d,
+            },
+            {"recovered_prefix": recovered_prefix},
+        )
 
     def validate_points(self, keypoints_2d: list[list[int]]) -> KeypointValidationReport:
         errors: list[str] = []
@@ -112,13 +131,13 @@ class KeypointSequenceCodec:
             raise ValueError(f"{axis} coordinate {parsed} out of range [0, {self.num_bins - 1}].")
         return parsed
 
-    def _parse_json_payload(self, text: str, *, strict: bool = False) -> Any:
+    def _parse_json_payload(self, text: str, *, strict: bool = False) -> tuple[Any, bool]:
         stripped = text.strip()
         if not stripped:
             raise ValueError("Decoded text is empty.")
         if strict:
             try:
-                return json.loads(stripped)
+                return json.loads(stripped), False
             except json.JSONDecodeError as exc:
                 raise ValueError(
                     f"Strict JSON payload must occupy the entire decoded text: {exc.msg}."
@@ -126,39 +145,14 @@ class KeypointSequenceCodec:
         fenced = JSON_FENCE_PATTERN.search(stripped)
         if fenced is not None:
             stripped = fenced.group(1).strip()
-        payload_text = self._extract_balanced_json(stripped)
+        payload_text = extract_balanced_json(stripped)
+        recovered_prefix = False
+        if payload_text is None:
+            payload_text = recover_truncated_json_array(stripped)
+            recovered_prefix = payload_text is not None
         if payload_text is None:
             raise ValueError("No JSON payload found in decoded text.")
         try:
-            return json.loads(payload_text)
+            return json.loads(payload_text), recovered_prefix
         except json.JSONDecodeError as exc:
             raise ValueError(f"Invalid JSON payload: {exc.msg}.") from exc
-
-    @staticmethod
-    def _extract_balanced_json(text: str) -> str | None:
-        start = text.find("[")
-        if start < 0:
-            return None
-        depth = 0
-        in_string = False
-        escape = False
-        for index in range(start, len(text)):
-            char = text[index]
-            if in_string:
-                if escape:
-                    escape = False
-                elif char == "\\":
-                    escape = True
-                elif char == '"':
-                    in_string = False
-                continue
-            if char == '"':
-                in_string = True
-                continue
-            if char == "[":
-                depth += 1
-            elif char == "]":
-                depth -= 1
-                if depth == 0:
-                    return text[start : index + 1]
-        return None
