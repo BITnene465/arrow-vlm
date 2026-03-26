@@ -5,8 +5,8 @@ experiment:
 
 model:
   # 默认优先使用本地 models 目录中的模型；若本地不存在，再回退到远端仓库 ID。
-  model_name_or_path: models/Qwen3-VL-2B-Instruct
-  remote_model_name_or_path: Qwen/Qwen3-VL-2B-Instruct
+  model_name_or_path: models/Qwen3-VL-4B-Instruct
+  remote_model_name_or_path: Qwen/Qwen3-VL-4B-Instruct
   trust_remote_code: true
   attn_implementation: flash_attention_2
   freeze_vision_tower: true
@@ -68,7 +68,7 @@ lora:
 
 train:
   epochs: 3
-  per_device_batch_size: 4
+  per_device_batch_size: 2
   grad_accum_steps: 2
   gradient_checkpointing: true
   learning_rate: 0.0001
