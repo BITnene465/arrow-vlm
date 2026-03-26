@@ -17,6 +17,11 @@ from vlm_det.utils.io import ensure_dir, load_jsonl, write_json, write_jsonl
 Image.MAX_IMAGE_PIXELS = None
 
 
+def _parse_int_sequence(values: list[int] | tuple[int, ...] | None, *, default: list[int]) -> list[int]:
+    resolved = list(values) if values else list(default)
+    return [int(value) for value in resolved if int(value) > 0]
+
+
 def _quantize(value: float, size: int, num_bins: int) -> int:
     size = max(int(size), 1)
     if size == 1:
@@ -31,6 +36,193 @@ def _build_stage1_instance(instance: dict[str, Any]) -> dict[str, Any]:
         "label": instance["label"],
         "bbox": list(instance["bbox"]),
         "keypoints": [list(keypoints[0]), list(keypoints[-1])],
+    }
+
+
+def _bbox_center(bbox: list[float]) -> tuple[float, float]:
+    return ((float(bbox[0]) + float(bbox[2])) * 0.5, (float(bbox[1]) + float(bbox[3])) * 0.5)
+
+
+def _intersect_bbox(bbox: list[float], crop_box: list[int]) -> list[float] | None:
+    crop_x1, crop_y1, crop_x2, crop_y2 = crop_box
+    x1 = max(float(bbox[0]), float(crop_x1))
+    y1 = max(float(bbox[1]), float(crop_y1))
+    x2 = min(float(bbox[2]), float(crop_x2))
+    y2 = min(float(bbox[3]), float(crop_y2))
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return [x1, y1, x2, y2]
+
+
+def _bbox_area(bbox: list[float]) -> float:
+    return max(float(bbox[2]) - float(bbox[0]), 0.0) * max(float(bbox[3]) - float(bbox[1]), 0.0)
+
+
+def _is_point_inside_crop(point: list[float], crop_box: list[int]) -> bool:
+    crop_x1, crop_y1, crop_x2, crop_y2 = crop_box
+    return (
+        float(crop_x1) <= float(point[0]) <= float(crop_x2) - 1.0
+        and float(crop_y1) <= float(point[1]) <= float(crop_y2) - 1.0
+    )
+
+
+def _crop_image_region(image: Image.Image, crop_box: list[int]) -> Image.Image:
+    crop_x1, crop_y1, crop_x2, crop_y2 = crop_box
+    return image.crop((crop_x1, crop_y1, crop_x2, crop_y2))
+
+
+def _sliding_window_starts(length: int, tile_size: int, stride: int) -> list[int]:
+    if length <= tile_size:
+        return [0]
+    starts: list[int] = [0]
+    current = 0
+    while current + tile_size < length:
+        current += stride
+        current = min(current, length - tile_size)
+        if current == starts[-1]:
+            break
+        starts.append(current)
+    return starts
+
+
+def _build_sliding_crop_boxes(
+    *,
+    image_width: int,
+    image_height: int,
+    tile_size: int,
+    stride: int,
+) -> list[list[int]]:
+    x_starts = _sliding_window_starts(image_width, tile_size, stride)
+    y_starts = _sliding_window_starts(image_height, tile_size, stride)
+    crop_boxes: list[list[int]] = []
+    for y in y_starts:
+        for x in x_starts:
+            crop_boxes.append(
+                [
+                    int(x),
+                    int(y),
+                    int(min(x + tile_size, image_width)),
+                    int(min(y + tile_size, image_height)),
+                ]
+            )
+    return crop_boxes
+
+
+def _build_density_crop_box(
+    *,
+    center_x: float,
+    center_y: float,
+    tile_size: int,
+    image_width: int,
+    image_height: int,
+) -> list[int]:
+    width = min(int(tile_size), int(image_width))
+    height = min(int(tile_size), int(image_height))
+    x1 = int(round(center_x - width * 0.5))
+    y1 = int(round(center_y - height * 0.5))
+    x1 = min(max(x1, 0), max(image_width - width, 0))
+    y1 = min(max(y1, 0), max(image_height - height, 0))
+    return [x1, y1, x1 + width, y1 + height]
+
+
+def _select_instances_for_stage1_crop(
+    instances: list[dict[str, Any]],
+    *,
+    crop_box: list[int],
+    min_visible_area_ratio: float,
+) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    for instance in instances:
+        center_x, center_y = _bbox_center(instance["bbox"])
+        if not _is_point_inside_crop([center_x, center_y], crop_box):
+            continue
+        intersection = _intersect_bbox(instance["bbox"], crop_box)
+        if intersection is None:
+            continue
+        bbox_area = _bbox_area(instance["bbox"])
+        if bbox_area <= 0.0:
+            continue
+        if _bbox_area(intersection) / bbox_area < float(min_visible_area_ratio):
+            continue
+        stage1_instance = _build_stage1_instance(instance)
+        if not all(_is_point_inside_crop(point, crop_box) for point in stage1_instance["keypoints"]):
+            continue
+        local_bbox = to_crop_local_bbox(stage1_instance["bbox"], crop_box)
+        local_keypoints = to_crop_local_keypoints(stage1_instance["keypoints"], crop_box)
+        stage1_instance["bbox"] = _round_bbox(local_bbox)
+        stage1_instance["keypoints"] = _round_keypoints(local_keypoints)
+        selected.append(stage1_instance)
+    return sort_instances_canonical(selected)
+
+
+def _write_stage1_crop_image(
+    *,
+    image: Image.Image,
+    output_dir: Path,
+    split: str,
+    sample_id: str,
+    crop_box: list[int],
+) -> tuple[Path, int, int]:
+    crop_dir = ensure_dir(output_dir / "stage1" / "images" / split)
+    crop_path = crop_dir / f"{sample_id}.png"
+    crop_image = _crop_image_region(image, crop_box)
+    crop_image.save(crop_path)
+    crop_width, crop_height = crop_image.size
+    crop_image.close()
+    return crop_path, int(crop_width), int(crop_height)
+
+
+def _build_stage1_crop_record(
+    *,
+    record: dict[str, Any],
+    image: Image.Image,
+    split: str,
+    output_dir: Path,
+    crop_box: list[int],
+    sample_suffix: str,
+    source_type: str,
+    min_visible_area_ratio: float,
+) -> dict[str, Any] | None:
+    selected_instances = _select_instances_for_stage1_crop(
+        record.get("instances", []),
+        crop_box=crop_box,
+        min_visible_area_ratio=min_visible_area_ratio,
+    )
+    if not selected_instances:
+        return None
+    sample_id = f"{record['sample_id']}__{sample_suffix}"
+    crop_path, crop_width, crop_height = _write_stage1_crop_image(
+        image=image,
+        output_dir=output_dir,
+        split=split,
+        sample_id=sample_id,
+        crop_box=crop_box,
+    )
+    return {
+        "task_type": "two_stage_stage1",
+        "sample_id": sample_id,
+        "source_sample_id": record["sample_id"],
+        "source_type": source_type,
+        "image_path": str(crop_path),
+        "image_width": int(crop_width),
+        "image_height": int(crop_height),
+        "crop_box": [int(value) for value in crop_box],
+        "instances": selected_instances,
+    }
+
+
+def _build_stage1_full_image_record(record: dict[str, Any]) -> dict[str, Any]:
+    instances = [_build_stage1_instance(instance) for instance in record.get("instances", [])]
+    instances = sort_instances_canonical(instances)
+    return {
+        "task_type": "two_stage_stage1",
+        "sample_id": record["sample_id"],
+        "source_sample_id": record["sample_id"],
+        "source_type": "full_image",
+        "image_path": record["image_path"],
+        "image_width": int(record["image_width"]),
+        "image_height": int(record["image_height"]),
+        "instances": instances,
     }
 
 
@@ -332,84 +524,162 @@ def _build_stage2_record(
     }
 
 
-def _build_stage1_record(record: dict[str, Any]) -> dict[str, Any]:
-    instances = [_build_stage1_instance(instance) for instance in record.get("instances", [])]
-    instances = sort_instances_canonical(instances)
-    return {
-        "task_type": "two_stage_stage1",
-        "sample_id": record["sample_id"],
-        "image_path": record["image_path"],
-        "image_width": int(record["image_width"]),
-        "image_height": int(record["image_height"]),
-        "instances": instances,
-    }
-
-
-def _prepare_split(
-    records: list[dict[str, Any]],
+def _enumerate_stage1_sliding_records(
     *,
+    record: dict[str, Any],
+    image: Image.Image,
     split: str,
     output_dir: Path,
-    padding_ratio: float,
-    num_bins: int,
-    num_workers: int,
-    stage2_aug_copies: int,
-    bbox_center_jitter_ratio: float,
-    bbox_scale_jitter_ratio: float,
-    endpoint_jitter_ratio: float,
-    augmentation_seed: int,
-    stats: Counter,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    stage1_records: list[dict[str, Any]] = []
-    stage2_records: list[dict[str, Any]] = []
-    if num_workers <= 1:
-        for record in records:
-            current_stage1, current_stage2 = _prepare_record(
-                record=record,
-                split=split,
-                output_dir=str(output_dir),
-                padding_ratio=padding_ratio,
-                num_bins=num_bins,
-                stage2_aug_copies=stage2_aug_copies,
-                bbox_center_jitter_ratio=bbox_center_jitter_ratio,
-                bbox_scale_jitter_ratio=bbox_scale_jitter_ratio,
-                endpoint_jitter_ratio=endpoint_jitter_ratio,
-                augmentation_seed=augmentation_seed,
+    tile_sizes: list[int],
+    tile_stride_ratio: float,
+    min_visible_area_ratio: float,
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    image_width = int(record["image_width"])
+    image_height = int(record["image_height"])
+    for tile_size in tile_sizes:
+        stride = max(int(round(tile_size * float(tile_stride_ratio))), 1)
+        for index, crop_box in enumerate(
+            _build_sliding_crop_boxes(
+                image_width=image_width,
+                image_height=image_height,
+                tile_size=int(tile_size),
+                stride=stride,
             )
-            stage1_records.append(current_stage1)
-            stage2_records.extend(current_stage2)
-            stats[f"{split}_stage1_samples"] += 1
-            stats[f"{split}_stage2_samples"] += len(current_stage2)
-        return stage1_records, stage2_records
-
-    max_workers = min(max(int(num_workers), 1), max(len(records), 1))
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        futures = [
-            executor.submit(
-                _prepare_record,
+        ):
+            stage1_record = _build_stage1_crop_record(
                 record=record,
+                image=image,
                 split=split,
-                output_dir=str(output_dir),
-                padding_ratio=padding_ratio,
-                num_bins=num_bins,
-                stage2_aug_copies=stage2_aug_copies,
-                bbox_center_jitter_ratio=bbox_center_jitter_ratio,
-                bbox_scale_jitter_ratio=bbox_scale_jitter_ratio,
-                endpoint_jitter_ratio=endpoint_jitter_ratio,
-                augmentation_seed=augmentation_seed,
+                output_dir=output_dir,
+                crop_box=crop_box,
+                sample_suffix=f"slide_t{int(tile_size)}_{index:04d}",
+                source_type=f"sliding_{int(tile_size)}",
+                min_visible_area_ratio=min_visible_area_ratio,
             )
-            for record in records
-        ]
-        for future in futures:
-            current_stage1, current_stage2 = future.result()
-            stage1_records.append(current_stage1)
-            stage2_records.extend(current_stage2)
-            stats[f"{split}_stage1_samples"] += 1
-            stats[f"{split}_stage2_samples"] += len(current_stage2)
-    return stage1_records, stage2_records
+            if stage1_record is not None:
+                records.append(stage1_record)
+    return records
 
 
-def _prepare_record(
+def _enumerate_stage1_density_records(
+    *,
+    record: dict[str, Any],
+    image: Image.Image,
+    split: str,
+    output_dir: Path,
+    tile_sizes: list[int],
+    min_instances: int,
+    max_instances: int,
+    max_crops_per_size: int,
+    min_visible_area_ratio: float,
+) -> list[dict[str, Any]]:
+    image_width = int(record["image_width"])
+    image_height = int(record["image_height"])
+    instances = record.get("instances", [])
+    if not instances:
+        return []
+
+    density_records: list[dict[str, Any]] = []
+    centers = [(*_bbox_center(instance["bbox"]), idx) for idx, instance in enumerate(instances)]
+    desired_mid = (int(min_instances) + int(max_instances)) * 0.5
+
+    for tile_size in tile_sizes:
+        candidates: list[tuple[tuple[float, float, float, int], list[int], int]] = []
+        seen_boxes: set[tuple[int, int, int, int]] = set()
+        for center_x, center_y, center_index in centers:
+            crop_box = _build_density_crop_box(
+                center_x=center_x,
+                center_y=center_y,
+                tile_size=int(tile_size),
+                image_width=image_width,
+                image_height=image_height,
+            )
+            crop_key = tuple(crop_box)
+            if crop_key in seen_boxes:
+                continue
+            seen_boxes.add(crop_key)
+            selected_instances = _select_instances_for_stage1_crop(
+                instances,
+                crop_box=crop_box,
+                min_visible_area_ratio=min_visible_area_ratio,
+            )
+            instance_count = len(selected_instances)
+            if instance_count < int(min_instances) or instance_count > int(max_instances):
+                continue
+            score = (
+                abs(instance_count - desired_mid),
+                -instance_count,
+                float(crop_box[1]),
+                float(crop_box[0]),
+                int(center_index),
+            )
+            candidates.append((score, crop_box, instance_count))
+
+        candidates.sort(key=lambda item: item[0])
+        for index, (_score, crop_box, _instance_count) in enumerate(candidates[: max(int(max_crops_per_size), 0)]):
+            density_record = _build_stage1_crop_record(
+                record=record,
+                image=image,
+                split=split,
+                output_dir=output_dir,
+                crop_box=crop_box,
+                sample_suffix=f"density_t{int(tile_size)}_{index:04d}",
+                source_type=f"density_{int(tile_size)}",
+                min_visible_area_ratio=min_visible_area_ratio,
+            )
+            if density_record is not None:
+                density_records.append(density_record)
+    return density_records
+
+
+def _prepare_stage1_record(
+    *,
+    record: dict[str, Any],
+    split: str,
+    output_dir: str,
+    stage1_include_full_image: bool,
+    stage1_tile_sizes: list[int],
+    stage1_tile_stride_ratio: float,
+    stage1_density_min_instances: int,
+    stage1_density_max_instances: int,
+    stage1_density_max_crops_per_size: int,
+    stage1_min_visible_area_ratio: float,
+) -> list[dict[str, Any]]:
+    image_path = Path(record["image_path"])
+    image = Image.open(image_path).convert("RGB")
+    current_stage1: list[dict[str, Any]] = []
+    if stage1_include_full_image:
+        current_stage1.append(_build_stage1_full_image_record(record))
+    current_stage1.extend(
+        _enumerate_stage1_sliding_records(
+            record=record,
+            image=image,
+            split=split,
+            output_dir=Path(output_dir),
+            tile_sizes=stage1_tile_sizes,
+            tile_stride_ratio=stage1_tile_stride_ratio,
+            min_visible_area_ratio=stage1_min_visible_area_ratio,
+        )
+    )
+    current_stage1.extend(
+        _enumerate_stage1_density_records(
+            record=record,
+            image=image,
+            split=split,
+            output_dir=Path(output_dir),
+            tile_sizes=stage1_tile_sizes,
+            min_instances=stage1_density_min_instances,
+            max_instances=stage1_density_max_instances,
+            max_crops_per_size=stage1_density_max_crops_per_size,
+            min_visible_area_ratio=stage1_min_visible_area_ratio,
+        )
+    )
+    image.close()
+    return current_stage1
+
+
+def _prepare_stage2_record_set(
     *,
     record: dict[str, Any],
     split: str,
@@ -421,10 +691,9 @@ def _prepare_record(
     bbox_scale_jitter_ratio: float,
     endpoint_jitter_ratio: float,
     augmentation_seed: int,
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+) -> list[dict[str, Any]]:
     image_path = Path(record["image_path"])
     image = Image.open(image_path).convert("RGB")
-    current_stage1 = _build_stage1_record(record)
     current_stage2: list[dict[str, Any]] = []
     output_dir_path = Path(output_dir)
     for target_index, instance in enumerate(record.get("instances", [])):
@@ -508,10 +777,204 @@ def _prepare_record(
             if noisy_record is not None:
                 current_stage2.append(noisy_record)
     image.close()
-    return current_stage1, current_stage2
+    return current_stage2
 
 
-def prepare_two_stage_data(
+def _prepare_stage1_split(
+    records: list[dict[str, Any]],
+    *,
+    split: str,
+    output_dir: Path,
+    num_workers: int,
+    stage1_include_full_image: bool,
+    stage1_tile_sizes: list[int],
+    stage1_tile_stride_ratio: float,
+    stage1_density_min_instances: int,
+    stage1_density_max_instances: int,
+    stage1_density_max_crops_per_size: int,
+    stage1_min_visible_area_ratio: float,
+    stats: Counter,
+) -> list[dict[str, Any]]:
+    stage1_records: list[dict[str, Any]] = []
+    if num_workers <= 1:
+        for record in records:
+            current_stage1 = _prepare_stage1_record(
+                record=record,
+                split=split,
+                output_dir=str(output_dir),
+                stage1_include_full_image=stage1_include_full_image,
+                stage1_tile_sizes=stage1_tile_sizes,
+                stage1_tile_stride_ratio=stage1_tile_stride_ratio,
+                stage1_density_min_instances=stage1_density_min_instances,
+                stage1_density_max_instances=stage1_density_max_instances,
+                stage1_density_max_crops_per_size=stage1_density_max_crops_per_size,
+                stage1_min_visible_area_ratio=stage1_min_visible_area_ratio,
+            )
+            stage1_records.extend(current_stage1)
+            stats[f"{split}_stage1_samples"] += len(current_stage1)
+            stats[f"{split}_stage1_full_image_samples"] += sum(1 for item in current_stage1 if item.get("source_type") == "full_image")
+            stats[f"{split}_stage1_sliding_samples"] += sum(1 for item in current_stage1 if str(item.get("source_type", "")).startswith("sliding_"))
+            stats[f"{split}_stage1_density_samples"] += sum(1 for item in current_stage1 if str(item.get("source_type", "")).startswith("density_"))
+        return stage1_records
+
+    max_workers = min(max(int(num_workers), 1), max(len(records), 1))
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = [
+            executor.submit(
+                _prepare_stage1_record,
+                record=record,
+                split=split,
+                output_dir=str(output_dir),
+                stage1_include_full_image=stage1_include_full_image,
+                stage1_tile_sizes=stage1_tile_sizes,
+                stage1_tile_stride_ratio=stage1_tile_stride_ratio,
+                stage1_density_min_instances=stage1_density_min_instances,
+                stage1_density_max_instances=stage1_density_max_instances,
+                stage1_density_max_crops_per_size=stage1_density_max_crops_per_size,
+                stage1_min_visible_area_ratio=stage1_min_visible_area_ratio,
+            )
+            for record in records
+        ]
+        for future in futures:
+            current_stage1 = future.result()
+            stage1_records.extend(current_stage1)
+            stats[f"{split}_stage1_samples"] += len(current_stage1)
+            stats[f"{split}_stage1_full_image_samples"] += sum(1 for item in current_stage1 if item.get("source_type") == "full_image")
+            stats[f"{split}_stage1_sliding_samples"] += sum(1 for item in current_stage1 if str(item.get("source_type", "")).startswith("sliding_"))
+            stats[f"{split}_stage1_density_samples"] += sum(1 for item in current_stage1 if str(item.get("source_type", "")).startswith("density_"))
+    return stage1_records
+
+
+def _prepare_stage2_split(
+    records: list[dict[str, Any]],
+    *,
+    split: str,
+    output_dir: Path,
+    padding_ratio: float,
+    num_bins: int,
+    num_workers: int,
+    stage2_aug_copies: int,
+    bbox_center_jitter_ratio: float,
+    bbox_scale_jitter_ratio: float,
+    endpoint_jitter_ratio: float,
+    augmentation_seed: int,
+    stats: Counter,
+) -> list[dict[str, Any]]:
+    stage2_records: list[dict[str, Any]] = []
+    if num_workers <= 1:
+        for record in records:
+            current_stage2 = _prepare_stage2_record_set(
+                record=record,
+                split=split,
+                output_dir=str(output_dir),
+                padding_ratio=padding_ratio,
+                num_bins=num_bins,
+                stage2_aug_copies=stage2_aug_copies,
+                bbox_center_jitter_ratio=bbox_center_jitter_ratio,
+                bbox_scale_jitter_ratio=bbox_scale_jitter_ratio,
+                endpoint_jitter_ratio=endpoint_jitter_ratio,
+                augmentation_seed=augmentation_seed,
+            )
+            stage2_records.extend(current_stage2)
+            stats[f"{split}_stage2_samples"] += len(current_stage2)
+        return stage2_records
+
+    max_workers = min(max(int(num_workers), 1), max(len(records), 1))
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = [
+            executor.submit(
+                _prepare_stage2_record_set,
+                record=record,
+                split=split,
+                output_dir=str(output_dir),
+                padding_ratio=padding_ratio,
+                num_bins=num_bins,
+                stage2_aug_copies=stage2_aug_copies,
+                bbox_center_jitter_ratio=bbox_center_jitter_ratio,
+                bbox_scale_jitter_ratio=bbox_scale_jitter_ratio,
+                endpoint_jitter_ratio=endpoint_jitter_ratio,
+                augmentation_seed=augmentation_seed,
+            )
+            for record in records
+        ]
+        for future in futures:
+            current_stage2 = future.result()
+            stage2_records.extend(current_stage2)
+            stats[f"{split}_stage2_samples"] += len(current_stage2)
+    return stage2_records
+
+
+def prepare_stage1_data(
+    *,
+    input_dir: str | Path,
+    output_dir: str | Path,
+    num_workers: int | None = None,
+    stage1_include_full_image: bool = True,
+    stage1_tile_sizes: list[int] | tuple[int, ...] | None = None,
+    stage1_tile_stride_ratio: float = 0.75,
+    stage1_density_min_instances: int = 5,
+    stage1_density_max_instances: int = 30,
+    stage1_density_max_crops_per_size: int = 8,
+    stage1_min_visible_area_ratio: float = 0.5,
+) -> dict[str, Any]:
+    input_dir = Path(input_dir)
+    output_dir = Path(output_dir)
+    resolved_workers = max(int(num_workers or os.cpu_count() or 1), 1)
+    resolved_tile_sizes = _parse_int_sequence(stage1_tile_sizes, default=[768, 1024])
+    train_records = load_jsonl(input_dir / "train.jsonl")
+    val_records = load_jsonl(input_dir / "val.jsonl")
+    stats: Counter = Counter()
+
+    stage1_train = _prepare_stage1_split(
+        train_records,
+        split="train",
+        output_dir=output_dir,
+        num_workers=resolved_workers,
+        stage1_include_full_image=stage1_include_full_image,
+        stage1_tile_sizes=resolved_tile_sizes,
+        stage1_tile_stride_ratio=stage1_tile_stride_ratio,
+        stage1_density_min_instances=stage1_density_min_instances,
+        stage1_density_max_instances=stage1_density_max_instances,
+        stage1_density_max_crops_per_size=stage1_density_max_crops_per_size,
+        stage1_min_visible_area_ratio=stage1_min_visible_area_ratio,
+        stats=stats,
+    )
+    stage1_val = _prepare_stage1_split(
+        val_records,
+        split="val",
+        output_dir=output_dir,
+        num_workers=resolved_workers,
+        stage1_include_full_image=stage1_include_full_image,
+        stage1_tile_sizes=resolved_tile_sizes,
+        stage1_tile_stride_ratio=stage1_tile_stride_ratio,
+        stage1_density_min_instances=stage1_density_min_instances,
+        stage1_density_max_instances=stage1_density_max_instances,
+        stage1_density_max_crops_per_size=stage1_density_max_crops_per_size,
+        stage1_min_visible_area_ratio=stage1_min_visible_area_ratio,
+        stats=stats,
+    )
+
+    write_jsonl(output_dir / "stage1" / "train.jsonl", stage1_train)
+    write_jsonl(output_dir / "stage1" / "val.jsonl", stage1_val)
+
+    report = {
+        "num_workers": int(resolved_workers),
+        "stage1_include_full_image": bool(stage1_include_full_image),
+        "stage1_tile_sizes": resolved_tile_sizes,
+        "stage1_tile_stride_ratio": float(stage1_tile_stride_ratio),
+        "stage1_density_min_instances": int(stage1_density_min_instances),
+        "stage1_density_max_instances": int(stage1_density_max_instances),
+        "stage1_density_max_crops_per_size": int(stage1_density_max_crops_per_size),
+        "stage1_min_visible_area_ratio": float(stage1_min_visible_area_ratio),
+        "stage1_train_samples": len(stage1_train),
+        "stage1_val_samples": len(stage1_val),
+        "counts": dict(stats),
+    }
+    write_json(output_dir / "reports" / "prepare_stage1_report.json", report)
+    return report
+
+
+def prepare_stage2_data(
     *,
     input_dir: str | Path,
     output_dir: str | Path,
@@ -531,7 +994,7 @@ def prepare_two_stage_data(
     val_records = load_jsonl(input_dir / "val.jsonl")
     stats: Counter = Counter()
 
-    stage1_train, stage2_train = _prepare_split(
+    stage2_train = _prepare_stage2_split(
         train_records,
         split="train",
         output_dir=output_dir,
@@ -545,7 +1008,7 @@ def prepare_two_stage_data(
         augmentation_seed=augmentation_seed,
         stats=stats,
     )
-    stage1_val, stage2_val = _prepare_split(
+    stage2_val = _prepare_stage2_split(
         val_records,
         split="val",
         output_dir=output_dir,
@@ -560,8 +1023,6 @@ def prepare_two_stage_data(
         stats=stats,
     )
 
-    write_jsonl(output_dir / "stage1" / "train.jsonl", stage1_train)
-    write_jsonl(output_dir / "stage1" / "val.jsonl", stage1_val)
     write_jsonl(output_dir / "stage2" / "train.jsonl", stage2_train)
     write_jsonl(output_dir / "stage2" / "val.jsonl", stage2_val)
 
@@ -575,11 +1036,61 @@ def prepare_two_stage_data(
         "bbox_scale_jitter_ratio": float(bbox_scale_jitter_ratio),
         "endpoint_jitter_ratio": float(endpoint_jitter_ratio),
         "augmentation_seed": int(augmentation_seed),
-        "stage1_train_samples": len(stage1_train),
-        "stage1_val_samples": len(stage1_val),
         "stage2_train_samples": len(stage2_train),
         "stage2_val_samples": len(stage2_val),
         "counts": dict(stats),
     }
-    write_json(output_dir / "reports" / "prepare_two_stage_report.json", report)
+    write_json(output_dir / "reports" / "prepare_stage2_report.json", report)
+    return report
+
+
+def prepare_two_stage_data(
+    *,
+    input_dir: str | Path,
+    output_dir: str | Path,
+    padding_ratio: float = 0.5,
+    num_bins: int = 1000,
+    num_workers: int | None = None,
+    stage2_aug_copies: int = 2,
+    bbox_center_jitter_ratio: float = 0.05,
+    bbox_scale_jitter_ratio: float = 0.08,
+    endpoint_jitter_ratio: float = 0.03,
+    augmentation_seed: int = 42,
+    stage1_include_full_image: bool = True,
+    stage1_tile_sizes: list[int] | tuple[int, ...] | None = None,
+    stage1_tile_stride_ratio: float = 0.75,
+    stage1_density_min_instances: int = 5,
+    stage1_density_max_instances: int = 30,
+    stage1_density_max_crops_per_size: int = 8,
+    stage1_min_visible_area_ratio: float = 0.5,
+) -> dict[str, Any]:
+    stage1_report = prepare_stage1_data(
+        input_dir=input_dir,
+        output_dir=output_dir,
+        num_workers=num_workers,
+        stage1_include_full_image=stage1_include_full_image,
+        stage1_tile_sizes=stage1_tile_sizes,
+        stage1_tile_stride_ratio=stage1_tile_stride_ratio,
+        stage1_density_min_instances=stage1_density_min_instances,
+        stage1_density_max_instances=stage1_density_max_instances,
+        stage1_density_max_crops_per_size=stage1_density_max_crops_per_size,
+        stage1_min_visible_area_ratio=stage1_min_visible_area_ratio,
+    )
+    stage2_report = prepare_stage2_data(
+        input_dir=input_dir,
+        output_dir=output_dir,
+        padding_ratio=padding_ratio,
+        num_bins=num_bins,
+        num_workers=num_workers,
+        stage2_aug_copies=stage2_aug_copies,
+        bbox_center_jitter_ratio=bbox_center_jitter_ratio,
+        bbox_scale_jitter_ratio=bbox_scale_jitter_ratio,
+        endpoint_jitter_ratio=endpoint_jitter_ratio,
+        augmentation_seed=augmentation_seed,
+    )
+    report = {
+        "stage1": stage1_report,
+        "stage2": stage2_report,
+    }
+    write_json(Path(output_dir) / "reports" / "prepare_two_stage_report.json", report)
     return report

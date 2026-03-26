@@ -159,17 +159,33 @@ The JSONL records are then encoded into the normalized JSON grounding target dur
 
 Two-stage experiments derive two datasets from the processed annotations:
 
-- `stage1`: full-image fixed-length supervision
-  - `label + bbox + 2-point keypoints`
+- `stage1`: mixed full-image + tile supervision
+  - original full-image samples
+  - multi-scale sliding-window samples
+  - density-driven crop samples
+  - fixed-length target: `label + bbox + 2-point keypoints`
 - `stage2`: target-conditioned crop supervision
   - crop image
   - crop-local text hint
   - crop-local full keypoint chain target
 
-Generate them with:
+Prepare Stage1:
 
 ```bash
-python scripts/prepare_two_stage_data.py \
+python scripts/prepare_stage1_data.py \
+  --input-dir data/processed \
+  --output-dir data/two_stage \
+  --num-workers 8 \
+  --stage1-include-full-image \
+  --stage1-tile-sizes 768,1024 \
+  --stage1-density-min-instances 5 \
+  --stage1-density-max-instances 30
+```
+
+Prepare Stage2:
+
+```bash
+python scripts/prepare_stage2_data.py \
   --input-dir data/processed \
   --output-dir data/two_stage \
   --padding-ratio 0.5 \
@@ -191,7 +207,8 @@ data/two_stage/
       train/
       val/
   reports/
-    prepare_two_stage_report.json
+    prepare_stage1_report.json
+    prepare_stage2_report.json
 ```
 
 Stage 2 uses crop-local coordinates. For every target instance:
@@ -202,6 +219,10 @@ Stage 2 uses crop-local coordinates. For every target instance:
 - prompt hints and training targets are reprojected into the crop-local `[0,999]` coordinate system
 - stage2 JSONL stores structured `condition` fields, and the final prompt is rendered at training time from `prompt.user_prompt_template`
 - stage2 adds offline noisy hint copies by default to simulate Stage 1 bbox / endpoint errors
+
+More detailed usage is documented in:
+
+- [docs/data_prepare.md](/home/tanjingyuan/code/arrow-vlm/docs/data_prepare.md)
 
 ## Synthetic Post-Training Data
 

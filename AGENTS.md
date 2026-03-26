@@ -89,7 +89,8 @@ python scripts/prepare_data.py \
 
 ## 两阶段实验入口
 
-- 两阶段数据准备：`scripts/prepare_two_stage_data.py`
+- Stage1 数据准备：`scripts/prepare_stage1_data.py`
+- Stage2 数据准备：`scripts/prepare_stage2_data.py`
 - Stage 1 训练配置：
   - `configs/train/train_stage1_lora.yaml`
   - `configs/train/train_stage1_lora_4b.yaml`
@@ -106,6 +107,10 @@ python scripts/prepare_data.py \
 - `demo_two_stage` 可在不提供 Stage 2 checkpoint 的情况下直接做 Stage 1 可视化检查
 - Stage 2 crop 默认 `padding_ratio = 0.5`
 - crop 超出原图边界时，黑边补齐
+- Stage1 现在支持三条线并行：
+  - 原始整图样本
+  - 多尺度滑窗样本
+  - 按箭头数量区间筛选的 density crop 样本
 
 ## 当前 LoRA 语义
 
