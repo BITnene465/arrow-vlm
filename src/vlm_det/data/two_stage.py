@@ -147,7 +147,9 @@ def _select_instances_for_stage1_crop(
         stage1_instance = _build_stage1_instance(instance)
         if not all(_is_point_inside_crop(point, crop_box) for point in stage1_instance["keypoints"]):
             continue
-        local_bbox = to_crop_local_bbox(stage1_instance["bbox"], crop_box)
+        # Stage1 tile supervision should stay inside the tile-local frame.
+        # Use the visible bbox intersection instead of the original full-image bbox.
+        local_bbox = to_crop_local_bbox(intersection, crop_box)
         local_keypoints = to_crop_local_keypoints(stage1_instance["keypoints"], crop_box)
         stage1_instance["bbox"] = _round_bbox(local_bbox)
         stage1_instance["keypoints"] = _round_keypoints(local_keypoints)

@@ -69,7 +69,7 @@ lora:
   proj_target_modules: []
 
 train:
-  epochs: 3
+  epochs: 2
   per_device_batch_size: 2
   grad_accum_steps: 2
   gradient_checkpointing: true
@@ -84,9 +84,9 @@ train:
   bf16: true
   eval_strategy: epoch
   eval_start_epoch: 0
-  log_every_steps: 40
-  eval_every_steps: 200
-  save_every_steps: 200
+  log_every_steps: 80
+  eval_every_steps: 400
+  save_every_steps: 400
   save_step_checkpoints: false
   keep_last_n_checkpoints: 2
   find_unused_parameters: false
