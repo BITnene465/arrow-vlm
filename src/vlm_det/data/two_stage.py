@@ -3,14 +3,16 @@ from __future__ import annotations
 import json
 import math
 import os
+import random
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
 from PIL import Image
 
-from vlm_det.data.ordering import sort_instances_canonical
+from vlm_det.data.ordering import normalize_keypoints_for_label, sort_instances_canonical
 from vlm_det.utils.io import ensure_dir, load_jsonl, write_json, write_jsonl
 
 Image.MAX_IMAGE_PIXELS = None
@@ -78,6 +80,113 @@ def _round_bbox(bbox: list[float]) -> list[float]:
 
 def _round_keypoints(keypoints: list[list[float]]) -> list[list[float]]:
     return [[round(float(x), 4), round(float(y), 4)] for x, y in keypoints]
+
+
+def _clip_point(point: list[float], image_width: int, image_height: int) -> list[float]:
+    return [
+        min(max(float(point[0]), 0.0), float(max(image_width - 1, 0))),
+        min(max(float(point[1]), 0.0), float(max(image_height - 1, 0))),
+    ]
+
+
+def _clip_bbox(bbox: list[float], image_width: int, image_height: int) -> list[float]:
+    x1 = min(max(float(bbox[0]), 0.0), float(max(image_width - 1, 0)))
+    y1 = min(max(float(bbox[1]), 0.0), float(max(image_height - 1, 0)))
+    x2 = min(max(float(bbox[2]), 0.0), float(max(image_width - 1, 0)))
+    y2 = min(max(float(bbox[3]), 0.0), float(max(image_height - 1, 0)))
+    if x2 <= x1:
+        x2 = min(float(max(image_width - 1, 0)), x1 + 1.0)
+        x1 = max(0.0, x2 - 1.0)
+    if y2 <= y1:
+        y2 = min(float(max(image_height - 1, 0)), y1 + 1.0)
+        y1 = max(0.0, y2 - 1.0)
+    return [x1, y1, x2, y2]
+
+
+def _all_points_inside_crop(keypoints: list[list[float]], crop_box: list[int]) -> bool:
+    crop_x1, crop_y1, crop_x2, crop_y2 = crop_box
+    return all(
+        crop_x1 <= float(x) <= crop_x2 - 1 and crop_y1 <= float(y) <= crop_y2 - 1
+        for x, y in keypoints
+    )
+
+
+def _stable_rng(
+    *,
+    sample_id: str,
+    target_index: int,
+    aug_index: int,
+    seed: int,
+) -> random.Random:
+    raw = f"{sample_id}:{target_index}:{aug_index}:{seed}".encode("utf-8")
+    digest = sha256(raw).hexdigest()
+    return random.Random(int(digest[:16], 16))
+
+
+def _jitter_bbox(
+    bbox: list[float],
+    *,
+    image_width: int,
+    image_height: int,
+    center_ratio: float,
+    scale_ratio: float,
+    rng: random.Random,
+) -> tuple[list[float], dict[str, float]]:
+    x1, y1, x2, y2 = [float(value) for value in bbox]
+    width = max(x2 - x1, 1.0)
+    height = max(y2 - y1, 1.0)
+    center_x = (x1 + x2) * 0.5
+    center_y = (y1 + y2) * 0.5
+
+    dx = rng.uniform(-center_ratio * width, center_ratio * width)
+    dy = rng.uniform(-center_ratio * height, center_ratio * height)
+    dw = rng.uniform(-scale_ratio * width, scale_ratio * width)
+    dh = rng.uniform(-scale_ratio * height, scale_ratio * height)
+
+    noisy_width = max(width + dw, 2.0)
+    noisy_height = max(height + dh, 2.0)
+    noisy_center_x = center_x + dx
+    noisy_center_y = center_y + dy
+
+    noisy_bbox = [
+        noisy_center_x - noisy_width * 0.5,
+        noisy_center_y - noisy_height * 0.5,
+        noisy_center_x + noisy_width * 0.5,
+        noisy_center_y + noisy_height * 0.5,
+    ]
+    noisy_bbox = _clip_bbox(noisy_bbox, image_width, image_height)
+    return noisy_bbox, {
+        "bbox_center_dx_px": round(dx, 4),
+        "bbox_center_dy_px": round(dy, 4),
+        "bbox_scale_dw_px": round(noisy_bbox[2] - noisy_bbox[0] - width, 4),
+        "bbox_scale_dh_px": round(noisy_bbox[3] - noisy_bbox[1] - height, 4),
+    }
+
+
+def _jitter_hint_keypoints(
+    *,
+    label: str,
+    keypoints: list[list[float]],
+    bbox: list[float],
+    image_width: int,
+    image_height: int,
+    endpoint_ratio: float,
+    rng: random.Random,
+) -> tuple[list[list[float]], dict[str, Any]]:
+    diagonal = math.dist((float(bbox[0]), float(bbox[1])), (float(bbox[2]), float(bbox[3])))
+    radius = max(diagonal * endpoint_ratio, 1.0)
+    noisy_points: list[list[float]] = []
+    offsets: list[list[float]] = []
+    for point in keypoints:
+        dx = rng.uniform(-radius, radius)
+        dy = rng.uniform(-radius, radius)
+        noisy_point = _clip_point([float(point[0]) + dx, float(point[1]) + dy], image_width, image_height)
+        noisy_points.append(noisy_point)
+        offsets.append([round(noisy_point[0] - float(point[0]), 4), round(noisy_point[1] - float(point[1]), 4)])
+    normalized_points = normalize_keypoints_for_label(label, noisy_points)
+    return normalized_points, {
+        "endpoint_offsets_px": offsets,
+    }
 
 
 def build_padded_crop(
@@ -185,25 +294,30 @@ def _build_stage2_record(
     image: Image.Image,
     split: str,
     target_index: int,
+    sample_suffix: str,
+    hint_bbox: list[float],
+    hint_keypoints: list[list[float]],
     output_dir: Path,
     padding_ratio: float,
     num_bins: int,
+    augmentation: dict[str, Any],
 ) -> dict[str, Any]:
     crop_image, crop_box = build_padded_crop(
         image,
-        bbox=instance["bbox"],
+        bbox=hint_bbox,
         padding_ratio=padding_ratio,
     )
     crop_width, crop_height = crop_image.size
     crop_dir = ensure_dir(output_dir / "stage2" / "images" / split)
-    crop_name = f"{record['sample_id']}__inst_{target_index:04d}.png"
+    crop_name = f"{record['sample_id']}__inst_{target_index:04d}{sample_suffix}.png"
     crop_path = crop_dir / crop_name
     crop_image.save(crop_path)
 
-    local_bbox = to_crop_local_bbox(instance["bbox"], crop_box)
-    local_keypoints = to_crop_local_keypoints(instance["keypoints"], crop_box)
-    local_hint_keypoints = [local_keypoints[0], local_keypoints[-1]]
-    local_bbox_2d = quantize_bbox_2d(local_bbox, crop_width, crop_height, num_bins)
+    local_gt_bbox = to_crop_local_bbox(instance["bbox"], crop_box)
+    local_gt_keypoints = to_crop_local_keypoints(instance["keypoints"], crop_box)
+    local_hint_bbox = to_crop_local_bbox(hint_bbox, crop_box)
+    local_hint_keypoints = to_crop_local_keypoints(hint_keypoints, crop_box)
+    local_bbox_2d = quantize_bbox_2d(local_hint_bbox, crop_width, crop_height, num_bins)
     local_hint_keypoints_2d = quantize_keypoints_2d(
         local_hint_keypoints,
         crop_width,
@@ -211,7 +325,7 @@ def _build_stage2_record(
         num_bins,
     )
     local_full_keypoints_2d = quantize_keypoints_2d(
-        local_keypoints,
+        local_gt_keypoints,
         crop_width,
         crop_height,
         num_bins,
@@ -219,7 +333,7 @@ def _build_stage2_record(
 
     return {
         "task_type": "two_stage_stage2",
-        "sample_id": f"{record['sample_id']}__inst_{target_index:04d}",
+        "sample_id": f"{record['sample_id']}__inst_{target_index:04d}{sample_suffix}",
         "source_sample_id": record["sample_id"],
         "target_index": int(target_index),
         "image_path": str(crop_path),
@@ -230,28 +344,25 @@ def _build_stage2_record(
         "gt_struct": {
             "task_type": "two_stage_stage2",
             "label": instance["label"],
-            "keypoints": _round_keypoints(local_keypoints),
+            "keypoints": _round_keypoints(local_gt_keypoints),
             "keypoints_2d": local_full_keypoints_2d,
         },
         "instances": [
             {
                 "label": instance["label"],
-                "bbox": _round_bbox(local_bbox),
-                "keypoints": _round_keypoints(local_keypoints),
+                "bbox": _round_bbox(local_gt_bbox),
+                "keypoints": _round_keypoints(local_gt_keypoints),
             }
         ],
         "condition": {
             "label": instance["label"],
-            "bbox": _round_bbox(local_bbox),
+            "bbox": _round_bbox(local_hint_bbox),
             "bbox_2d": local_bbox_2d,
             "keypoints": _round_keypoints(local_hint_keypoints),
             "keypoints_2d": local_hint_keypoints_2d,
         },
         "crop_box": crop_box,
-        "augmentation": {
-            "bbox_jitter_px": 0.0,
-            "endpoint_jitter_px": 0.0,
-        },
+        "augmentation": augmentation,
     }
 
 
@@ -276,6 +387,11 @@ def _prepare_split(
     padding_ratio: float,
     num_bins: int,
     num_workers: int,
+    stage2_aug_copies: int,
+    bbox_center_jitter_ratio: float,
+    bbox_scale_jitter_ratio: float,
+    endpoint_jitter_ratio: float,
+    augmentation_seed: int,
     stats: Counter,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     stage1_records: list[dict[str, Any]] = []
@@ -288,6 +404,11 @@ def _prepare_split(
                 output_dir=str(output_dir),
                 padding_ratio=padding_ratio,
                 num_bins=num_bins,
+                stage2_aug_copies=stage2_aug_copies,
+                bbox_center_jitter_ratio=bbox_center_jitter_ratio,
+                bbox_scale_jitter_ratio=bbox_scale_jitter_ratio,
+                endpoint_jitter_ratio=endpoint_jitter_ratio,
+                augmentation_seed=augmentation_seed,
             )
             stage1_records.append(current_stage1)
             stage2_records.extend(current_stage2)
@@ -305,6 +426,11 @@ def _prepare_split(
                 output_dir=str(output_dir),
                 padding_ratio=padding_ratio,
                 num_bins=num_bins,
+                stage2_aug_copies=stage2_aug_copies,
+                bbox_center_jitter_ratio=bbox_center_jitter_ratio,
+                bbox_scale_jitter_ratio=bbox_scale_jitter_ratio,
+                endpoint_jitter_ratio=endpoint_jitter_ratio,
+                augmentation_seed=augmentation_seed,
             )
             for record in records
         ]
@@ -324,6 +450,11 @@ def _prepare_record(
     output_dir: str,
     padding_ratio: float,
     num_bins: int,
+    stage2_aug_copies: int,
+    bbox_center_jitter_ratio: float,
+    bbox_scale_jitter_ratio: float,
+    endpoint_jitter_ratio: float,
+    augmentation_seed: int,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     image_path = Path(record["image_path"])
     image = Image.open(image_path).convert("RGB")
@@ -338,11 +469,78 @@ def _prepare_record(
                 image=image,
                 split=split,
                 target_index=target_index,
+                sample_suffix="",
+                hint_bbox=instance["bbox"],
+                hint_keypoints=[instance["keypoints"][0], instance["keypoints"][-1]],
                 output_dir=output_dir_path,
                 padding_ratio=padding_ratio,
                 num_bins=num_bins,
+                augmentation={
+                    "copy_type": "clean",
+                    "copy_index": 0,
+                    "bbox_center_dx_px": 0.0,
+                    "bbox_center_dy_px": 0.0,
+                    "bbox_scale_dw_px": 0.0,
+                    "bbox_scale_dh_px": 0.0,
+                    "endpoint_offsets_px": [[0.0, 0.0], [0.0, 0.0]],
+                },
             )
         )
+        for aug_index in range(1, int(stage2_aug_copies) + 1):
+            rng = _stable_rng(
+                sample_id=record["sample_id"],
+                target_index=target_index,
+                aug_index=aug_index,
+                seed=augmentation_seed,
+            )
+            noisy_record = None
+            for _attempt in range(8):
+                noisy_bbox, bbox_meta = _jitter_bbox(
+                    instance["bbox"],
+                    image_width=int(record["image_width"]),
+                    image_height=int(record["image_height"]),
+                    center_ratio=bbox_center_jitter_ratio,
+                    scale_ratio=bbox_scale_jitter_ratio,
+                    rng=rng,
+                )
+                noisy_hint_keypoints, point_meta = _jitter_hint_keypoints(
+                    label=instance["label"],
+                    keypoints=[instance["keypoints"][0], instance["keypoints"][-1]],
+                    bbox=instance["bbox"],
+                    image_width=int(record["image_width"]),
+                    image_height=int(record["image_height"]),
+                    endpoint_ratio=endpoint_jitter_ratio,
+                    rng=rng,
+                )
+                preview_crop_box = build_padded_crop(
+                    image,
+                    bbox=noisy_bbox,
+                    padding_ratio=padding_ratio,
+                )[1]
+                if not _all_points_inside_crop(instance["keypoints"], preview_crop_box):
+                    continue
+                noisy_record = _build_stage2_record(
+                    record,
+                    instance,
+                    image=image,
+                    split=split,
+                    target_index=target_index,
+                    sample_suffix=f"__aug_{aug_index:02d}",
+                    hint_bbox=noisy_bbox,
+                    hint_keypoints=noisy_hint_keypoints,
+                    output_dir=output_dir_path,
+                    padding_ratio=padding_ratio,
+                    num_bins=num_bins,
+                    augmentation={
+                        "copy_type": "noisy",
+                        "copy_index": int(aug_index),
+                        **bbox_meta,
+                        **point_meta,
+                    },
+                )
+                break
+            if noisy_record is not None:
+                current_stage2.append(noisy_record)
     image.close()
     return current_stage1, current_stage2
 
@@ -354,6 +552,11 @@ def prepare_two_stage_data(
     padding_ratio: float = 0.5,
     num_bins: int = 1000,
     num_workers: int | None = None,
+    stage2_aug_copies: int = 2,
+    bbox_center_jitter_ratio: float = 0.05,
+    bbox_scale_jitter_ratio: float = 0.08,
+    endpoint_jitter_ratio: float = 0.03,
+    augmentation_seed: int = 42,
 ) -> dict[str, Any]:
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
@@ -369,6 +572,11 @@ def prepare_two_stage_data(
         padding_ratio=padding_ratio,
         num_bins=num_bins,
         num_workers=resolved_workers,
+        stage2_aug_copies=stage2_aug_copies,
+        bbox_center_jitter_ratio=bbox_center_jitter_ratio,
+        bbox_scale_jitter_ratio=bbox_scale_jitter_ratio,
+        endpoint_jitter_ratio=endpoint_jitter_ratio,
+        augmentation_seed=augmentation_seed,
         stats=stats,
     )
     stage1_val, stage2_val = _prepare_split(
@@ -378,6 +586,11 @@ def prepare_two_stage_data(
         padding_ratio=padding_ratio,
         num_bins=num_bins,
         num_workers=resolved_workers,
+        stage2_aug_copies=stage2_aug_copies,
+        bbox_center_jitter_ratio=bbox_center_jitter_ratio,
+        bbox_scale_jitter_ratio=bbox_scale_jitter_ratio,
+        endpoint_jitter_ratio=endpoint_jitter_ratio,
+        augmentation_seed=augmentation_seed,
         stats=stats,
     )
 
@@ -390,6 +603,11 @@ def prepare_two_stage_data(
         "padding_ratio": float(padding_ratio),
         "num_bins": int(num_bins),
         "num_workers": int(resolved_workers),
+        "stage2_aug_copies": int(stage2_aug_copies),
+        "bbox_center_jitter_ratio": float(bbox_center_jitter_ratio),
+        "bbox_scale_jitter_ratio": float(bbox_scale_jitter_ratio),
+        "endpoint_jitter_ratio": float(endpoint_jitter_ratio),
+        "augmentation_seed": int(augmentation_seed),
         "stage1_train_samples": len(stage1_train),
         "stage1_val_samples": len(stage1_val),
         "stage2_train_samples": len(stage2_train),

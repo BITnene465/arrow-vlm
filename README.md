@@ -173,7 +173,8 @@ python scripts/prepare_two_stage_data.py \
   --input-dir data/processed \
   --output-dir data/two_stage \
   --padding-ratio 0.5 \
-  --num-workers 8
+  --num-workers 8 \
+  --stage2-aug-copies 2
 ```
 
 This writes:
@@ -200,6 +201,7 @@ Stage 2 uses crop-local coordinates. For every target instance:
 - out-of-bound crop area is padded with black pixels
 - prompt hints and training targets are reprojected into the crop-local `[0,999]` coordinate system
 - stage2 JSONL stores structured `condition` fields, and the final prompt is rendered at training time from `prompt.user_prompt_template`
+- stage2 adds offline noisy hint copies by default to simulate Stage 1 bbox / endpoint errors
 
 ## Synthetic Post-Training Data
 
