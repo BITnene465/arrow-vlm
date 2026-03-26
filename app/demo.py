@@ -10,6 +10,7 @@ import torch
 from PIL import Image
 
 from vlm_det.infer import draw_prediction
+from vlm_det.infer.config import load_one_stage_inference_config
 from vlm_det.infer.runner import load_inference_runner
 
 
@@ -242,8 +243,10 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _discover_model_choices(current_model_name_or_path: str) -> list[str]:
-    discovered: set[str] = {current_model_name_or_path}
+def _discover_model_choices(current_model_name_or_path: str | None) -> list[str]:
+    discovered: set[str] = set()
+    if current_model_name_or_path:
+        discovered.add(current_model_name_or_path)
     models_dir = Path("models")
     if models_dir.exists():
         for child in sorted(models_dir.iterdir()):
@@ -252,8 +255,10 @@ def _discover_model_choices(current_model_name_or_path: str) -> list[str]:
     return sorted(discovered)
 
 
-def _discover_checkpoint_choices(current_checkpoint_path: str) -> list[str]:
-    discovered: set[str] = {current_checkpoint_path}
+def _discover_checkpoint_choices(current_checkpoint_path: str | None) -> list[str]:
+    discovered: set[str] = set()
+    if current_checkpoint_path:
+        discovered.add(current_checkpoint_path)
     outputs_dir = Path("outputs")
     if outputs_dir.exists():
         for child in sorted(outputs_dir.glob("**/checkpoints/best")):
@@ -330,6 +335,7 @@ def _render_status_panel(
 def build_demo(
     runner,
     *,
+    infer_config,
     default_max_new_tokens: int | None = None,
     runner_factory=None,
 ):
@@ -342,13 +348,13 @@ def build_demo(
             "or unset the proxy variables before launching `app/demo.py`."
         ) from exc
 
-    effective_default_max_new_tokens = default_max_new_tokens or runner.config.eval.max_new_tokens
-    model_choices = _discover_model_choices(runner.config.model.model_name_or_path)
-    checkpoint_choices = _discover_checkpoint_choices(runner.settings.checkpoint_path)
+    effective_default_max_new_tokens = default_max_new_tokens or infer_config.eval.max_new_tokens or 2048
+    model_choices = _discover_model_choices(runner.config.model.model_name_or_path if runner is not None else None)
+    checkpoint_choices = _discover_checkpoint_choices(runner.settings.checkpoint_path if runner is not None else None)
     runner_holder = {
         "runner": runner,
-        "model_name_or_path": runner.config.model.model_name_or_path,
-        "checkpoint_path": runner.settings.checkpoint_path,
+        "model_name_or_path": runner.config.model.model_name_or_path if runner is not None else "",
+        "checkpoint_path": runner.settings.checkpoint_path if runner is not None else "",
     }
 
     def _gallery_items(image: Image.Image | None) -> list[Image.Image]:
@@ -363,7 +369,7 @@ def build_demo(
             raise ValueError("Checkpoint path cannot be empty.")
         current_model = runner_holder["model_name_or_path"]
         current_checkpoint = runner_holder["checkpoint_path"]
-        if selected_model == current_model and selected_checkpoint == current_checkpoint:
+        if runner_holder["runner"] is not None and selected_model == current_model and selected_checkpoint == current_checkpoint:
             return runner_holder["runner"]
         if runner_factory is None:
             raise RuntimeError("Runner factory is unavailable for model switching.")
@@ -467,14 +473,14 @@ def build_demo(
                     model_name_or_path_input = gr.Dropdown(
                         label="Base Model",
                         choices=model_choices,
-                        value=runner.config.model.model_name_or_path,
+                        value=runner.config.model.model_name_or_path if runner is not None else None,
                         allow_custom_value=True,
                         info="Checkpoint and base model size must match.",
                     )
                     checkpoint_path_input = gr.Dropdown(
                         label="Checkpoint",
                         choices=checkpoint_choices,
-                        value=runner.settings.checkpoint_path,
+                        value=runner.settings.checkpoint_path if runner is not None else None,
                         allow_custom_value=True,
                         info="Choose a checkpoint directory such as checkpoints/best.",
                     )
@@ -541,6 +547,7 @@ def build_demo(
 
 def main() -> None:
     args = parse_args()
+    infer_config = load_one_stage_inference_config(args.config)
     def _runner_factory(
         model_name_or_path: str | None = None,
         checkpoint_path: str | None = None,
@@ -552,16 +559,17 @@ def main() -> None:
             model_name_or_path=model_name_or_path,
         )
 
-    runner = _runner_factory()
+    runner = _runner_factory() if args.checkpoint else None
     demo = build_demo(
         runner,
+        infer_config=infer_config,
         default_max_new_tokens=args.max_new_tokens,
         runner_factory=_runner_factory,
     )
     demo.launch(
-        server_name=runner.settings.app.host,
-        server_port=runner.settings.app.port,
-        share=runner.settings.app.share,
+        server_name=infer_config.app.host,
+        server_port=infer_config.app.port,
+        share=infer_config.app.share,
     )
 
 

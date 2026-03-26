@@ -17,7 +17,7 @@ from vlm_det.infer.visualize import draw_prediction, format_prediction_summary
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Launch a Gradio demo for two-stage ArrowVLM inference.")
     parser.add_argument("--config", default="configs/infer/infer_two_stage.yaml", help="Two-stage inference config path.")
-    parser.add_argument("--stage1-checkpoint", required=True)
+    parser.add_argument("--stage1-checkpoint", default=None)
     parser.add_argument("--stage2-checkpoint", default=None)
     parser.add_argument("--stage1-model", default=None)
     parser.add_argument("--stage2-model", default=None)
@@ -61,21 +61,21 @@ def build_demo(args: argparse.Namespace):
         raise RuntimeError("Failed to import gradio for the two-stage inference app.") from exc
 
     infer_config = load_two_stage_inference_config(args.config)
-    initial_runner = load_two_stage_inference_runner(
-        config_path=args.config,
-        stage1_checkpoint_path=args.stage1_checkpoint,
-        stage2_checkpoint_path=args.stage2_checkpoint,
-        device_name=args.device,
-        stage1_model_name_or_path=args.stage1_model,
-        stage2_model_name_or_path=args.stage2_model,
-    )
+    initial_runner = None
+    if args.stage1_checkpoint:
+        initial_runner = load_two_stage_inference_runner(
+            config_path=args.config,
+            stage1_checkpoint_path=args.stage1_checkpoint,
+            stage2_checkpoint_path=args.stage2_checkpoint,
+            device_name=args.device,
+            stage1_model_name_or_path=args.stage1_model,
+            stage2_model_name_or_path=args.stage2_model,
+        )
     runner_holder = {
         "runner": initial_runner,
-        "stage1_model": args.stage1_model or initial_runner.stage1_runner.config.model.model_name_or_path,
-        "stage2_model": args.stage2_model or (
-            initial_runner.stage2_runner.config.model.model_name_or_path if initial_runner.stage2_runner is not None else ""
-        ),
-        "stage1_checkpoint": args.stage1_checkpoint,
+        "stage1_model": args.stage1_model or "",
+        "stage2_model": args.stage2_model or "",
+        "stage1_checkpoint": args.stage1_checkpoint or "",
         "stage2_checkpoint": args.stage2_checkpoint or "",
         "enable_stage2": bool(args.stage2_checkpoint),
     }
@@ -211,13 +211,13 @@ def build_demo(args: argparse.Namespace):
             with gr.Column(scale=1):
                 stage1_model = gr.Dropdown(
                     choices=_discover_model_choices(runner_holder["stage1_model"]),
-                    value=runner_holder["stage1_model"],
+                    value=runner_holder["stage1_model"] or None,
                     label="Stage1 Base Model",
                     allow_custom_value=True,
                 )
                 stage1_checkpoint = gr.Dropdown(
                     choices=_discover_checkpoint_choices(runner_holder["stage1_checkpoint"]),
-                    value=runner_holder["stage1_checkpoint"],
+                    value=runner_holder["stage1_checkpoint"] or None,
                     label="Stage1 Checkpoint",
                     allow_custom_value=True,
                 )
@@ -227,13 +227,13 @@ def build_demo(args: argparse.Namespace):
                 )
                 stage2_model = gr.Dropdown(
                     choices=_discover_model_choices(runner_holder["stage2_model"]),
-                    value=runner_holder["stage2_model"],
+                    value=runner_holder["stage2_model"] or None,
                     label="Stage2 Base Model",
                     allow_custom_value=True,
                 )
                 stage2_checkpoint = gr.Dropdown(
                     choices=_discover_checkpoint_choices(runner_holder["stage2_checkpoint"]),
-                    value=runner_holder["stage2_checkpoint"],
+                    value=runner_holder["stage2_checkpoint"] or None,
                     label="Stage2 Checkpoint",
                     allow_custom_value=True,
                 )
