@@ -32,6 +32,7 @@ class ArrowSFTDataset(Dataset):
         self.user_prompt = user_prompt
         self.system_prompt_template = system_prompt_template
         self.user_prompt_template = user_prompt_template
+        self._target_token_lengths_cache: dict[int, list[int]] = {}
 
     def __len__(self) -> int:
         return len(self.records)
@@ -89,3 +90,42 @@ class ArrowSFTDataset(Dataset):
             "target_text": str(target_text),
             "gt_struct": gt_struct,
         }
+
+    def get_target_token_lengths(self, tokenizer) -> list[int]:
+        cache_key = id(tokenizer)
+        cached = self._target_token_lengths_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        lengths: list[int] = []
+        for record in self.records:
+            record_gt_struct = record.get("gt_struct")
+            if record_gt_struct is not None:
+                gt_struct = record_gt_struct
+            else:
+                instances = record.get("instances", [])
+                gt_struct = {
+                    "instances": [
+                        {
+                            "label": instance["label"],
+                            "bbox": instance["bbox"],
+                            "keypoints": instance["keypoints"],
+                        }
+                        for instance in instances
+                    ]
+                }
+            target_text = record.get("target_text")
+            if target_text is None:
+                target_text = self.codec.encode(
+                    gt_struct,
+                    image_width=record["image_width"],
+                    image_height=record["image_height"],
+                )
+            tokenized = tokenizer(
+                str(target_text),
+                add_special_tokens=False,
+                return_attention_mask=False,
+                return_token_type_ids=False,
+            )
+            lengths.append(len(tokenized["input_ids"]))
+        self._target_token_lengths_cache[cache_key] = lengths
+        return lengths

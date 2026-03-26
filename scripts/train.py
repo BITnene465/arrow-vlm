@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import argparse
 import math
+from collections.abc import Iterator
 
 import torch
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DataLoader, DistributedSampler, Sampler
 
 from vlm_det.config import apply_run_id, load_config, config_to_dict
 from vlm_det.data.collator import ArrowSFTCollator
@@ -49,6 +50,68 @@ def _build_dataloader(dataset, collator, batch_size, num_workers, pin_memory, pe
         batch_size=batch_size,
         shuffle=shuffle if sampler is None else False,
         sampler=sampler,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=persistent_workers if num_workers > 0 else False,
+        collate_fn=collator,
+    )
+
+
+class _SortedBatchSampler(Sampler[list[int]]):
+    def __init__(
+        self,
+        indices: list[int],
+        batch_size: int,
+        *,
+        world_size: int = 1,
+        rank: int = 0,
+    ) -> None:
+        self.batch_size = max(int(batch_size), 1)
+        self.indices = list(indices)[int(rank) :: max(int(world_size), 1)]
+
+    def __iter__(self) -> Iterator[list[int]]:
+        for start in range(0, len(self.indices), self.batch_size):
+            yield self.indices[start : start + self.batch_size]
+
+    def __len__(self) -> int:
+        return math.ceil(len(self.indices) / self.batch_size)
+
+
+def _build_val_dataloader(
+    dataset,
+    collator,
+    batch_size,
+    num_workers,
+    pin_memory,
+    persistent_workers,
+    distributed,
+    world_size,
+    rank,
+    tokenizer,
+    bucket_by_target_length: bool,
+):
+    if not bucket_by_target_length:
+        return _build_dataloader(
+            dataset,
+            collator,
+            batch_size,
+            num_workers,
+            pin_memory,
+            persistent_workers,
+            distributed,
+            shuffle=False,
+        )
+    target_lengths = dataset.get_target_token_lengths(tokenizer)
+    sorted_indices = [index for index, _length in sorted(enumerate(target_lengths), key=lambda item: item[1])]
+    batch_sampler = _SortedBatchSampler(
+        sorted_indices,
+        batch_size,
+        world_size=world_size if distributed else 1,
+        rank=rank if distributed else 0,
+    )
+    return DataLoader(
+        dataset,
+        batch_sampler=batch_sampler,
         num_workers=num_workers,
         pin_memory=pin_memory,
         persistent_workers=persistent_workers if num_workers > 0 else False,
@@ -132,7 +195,7 @@ def main() -> None:
         dist_ctx.distributed,
         shuffle=True,
     )
-    val_loader = _build_dataloader(
+    val_loader = _build_val_dataloader(
         val_dataset,
         val_collator,
         config.eval.per_device_batch_size,
@@ -140,7 +203,10 @@ def main() -> None:
         config.data.pin_memory,
         config.data.persistent_workers,
         dist_ctx.distributed,
-        shuffle=False,
+        dist_ctx.world_size,
+        dist_ctx.rank,
+        build_artifacts.tokenizer,
+        config.eval.bucket_by_target_length,
     )
 
     total_steps_per_epoch = math.ceil(

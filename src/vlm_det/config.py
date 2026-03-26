@@ -129,6 +129,7 @@ class TrainConfig:
 @dataclass
 class EvalConfig:
     per_device_batch_size: int = 1
+    bucket_by_target_length: bool = True
     max_new_tokens: int = 8192
     num_beams: int = 1
     do_sample: bool = False
