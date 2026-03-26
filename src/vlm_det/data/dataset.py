@@ -35,30 +35,37 @@ class ArrowSFTDataset(Dataset):
         record = self.records[index]
         image_path = Path(record["image_path"])
         image = Image.open(image_path).convert("RGB")
-        instances = record.get("instances", [])
-        gt_struct = {
-            "instances": [
-                {
-                    "label": instance["label"],
-                    "bbox": instance["bbox"],
-                    "keypoints": instance["keypoints"],
-                }
-                for instance in instances
-            ]
-        }
-        target_text = self.codec.encode(
-            gt_struct,
-            image_width=record["image_width"],
-            image_height=record["image_height"],
-        )
+        record_gt_struct = record.get("gt_struct")
+        if record_gt_struct is not None:
+            gt_struct = record_gt_struct
+        else:
+            instances = record.get("instances", [])
+            gt_struct = {
+                "instances": [
+                    {
+                        "label": instance["label"],
+                        "bbox": instance["bbox"],
+                        "keypoints": instance["keypoints"],
+                    }
+                    for instance in instances
+                ]
+            }
+        target_text = record.get("target_text")
+        if target_text is None:
+            target_text = self.codec.encode(
+                gt_struct,
+                image_width=record["image_width"],
+                image_height=record["image_height"],
+            )
         return {
+            "task_type": record.get("task_type", "one_stage"),
             "sample_id": record.get("sample_id", image_path.stem),
             "image_path": str(image_path),
             "image": image,
             "image_width": int(record["image_width"]),
             "image_height": int(record["image_height"]),
-            "system_prompt": self.system_prompt,
-            "user_prompt": self.user_prompt,
-            "target_text": target_text,
+            "system_prompt": record.get("system_prompt", self.system_prompt),
+            "user_prompt": record.get("user_prompt", self.user_prompt),
+            "target_text": str(target_text),
             "gt_struct": gt_struct,
         }

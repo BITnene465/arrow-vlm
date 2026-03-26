@@ -116,6 +116,7 @@ class ArrowSFTCollator:
             "image_grid_thw": prefix_batch.get("image_grid_thw"),
             "prompt_lengths": torch.tensor(prompt_length_tensor, dtype=torch.long),
             "meta": {
+                "task_type": [item["task_type"] for item in batch],
                 "sample_id": [item["sample_id"] for item in batch],
                 "image_path": [item["image_path"] for item in batch],
                 "image_width": [item["image_width"] for item in batch],

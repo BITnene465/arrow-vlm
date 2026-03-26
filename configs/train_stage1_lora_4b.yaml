@@ -1,0 +1,104 @@
+experiment:
+  name: qwen3vl-s1-lora
+  output_dir: outputs/qwen3vl-s1-lora
+  seed: 42
+
+model:
+  model_name_or_path: models/Qwen3-VL-4B-Instruct
+  remote_model_name_or_path: Qwen/Qwen3-VL-4B-Instruct
+  trust_remote_code: true
+  attn_implementation: flash_attention_2
+  freeze_vision_tower: true
+  train_projector: false
+  vision_name_substrings:
+    - visual
+  projector_name_substrings:
+    - merger
+    - projector
+    - multi_modal_projector
+  min_pixels: 200704
+  max_pixels: 1048576
+
+tokenizer:
+  num_bins: 1000
+  add_eos_token: true
+
+prompt:
+  system_prompt: ""
+  user_prompt: |
+    Detect all arrows and output only a JSON array, with no markdown and no extra text.
+    Normalize every coordinate to an integer in [0,999].
+    Each item must be either {"label":"single_arrow","bbox_2d":[x1,y1,x2,y2],"keypoints_2d":[[x,y],[x,y]]}
+    or {"label":"double_arrow","bbox_2d":[x1,y1,x2,y2],"keypoints_2d":[[x,y],[x,y]]}.
+    For single_arrow, keypoints must be ordered from tail to head.
+    For double_arrow, keypoints[0] must be the upper-left head and keypoints[1] the other head.
+    Output exactly two keypoints for each arrow.
+
+data:
+  train_path: data/two_stage/stage1/train.jsonl
+  val_path: data/two_stage/stage1/val.jsonl
+  num_workers: 8
+  pin_memory: true
+  persistent_workers: true
+
+finetune:
+  mode: lora
+
+lora:
+  enabled: true
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  bias: none
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+
+train:
+  epochs: 3
+  per_device_batch_size: 2
+  grad_accum_steps: 2
+  gradient_checkpointing: true
+  learning_rate: 0.0001
+  embed_learning_rate: 0.0001
+  lm_head_learning_rate: 0.0001
+  lora_learning_rate: 0.0002
+  weight_decay: 0.01
+  warmup_ratio: 0.1
+  scheduler_type: cosine
+  max_grad_norm: 1.0
+  bf16: true
+  eval_strategy: epoch
+  eval_start_epoch: 0
+  log_every_steps: 40
+  eval_every_steps: 200
+  save_every_steps: 200
+  save_step_checkpoints: false
+  keep_last_n_checkpoints: 2
+  find_unused_parameters: false
+
+eval:
+  per_device_batch_size: 8
+  max_new_tokens: 1024
+  num_beams: 1
+  do_sample: false
+  use_cache: true
+  bbox_iou_threshold: 0.5
+  strict_point_distance_px: 8.0
+  monitor_metric: val/end_to_end_score
+  monitor_mode: max
+
+logging:
+  use_wandb: true
+  project: vlm_det_json
+  run_name: qwen3vl-s1-lora
+  progress_ncols: 88
+
+checkpoint:
+  init_from: null
+  resume_from: null

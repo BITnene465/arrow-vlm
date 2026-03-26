@@ -155,6 +155,51 @@ For real LabelMe data, rectangle classes are mapped as:
 
 The JSONL records are then encoded into the normalized JSON grounding target during dataset loading.
 
+## Two-Stage Data Preparation
+
+Two-stage experiments derive two datasets from the processed annotations:
+
+- `stage1`: full-image fixed-length supervision
+  - `label + bbox + 2-point keypoints`
+- `stage2`: target-conditioned crop supervision
+  - crop image
+  - crop-local text hint
+  - crop-local full keypoint chain target
+
+Generate them with:
+
+```bash
+python scripts/prepare_two_stage_data.py \
+  --input-dir data/processed \
+  --output-dir data/two_stage \
+  --padding-ratio 0.5 \
+  --num-workers 8
+```
+
+This writes:
+
+```text
+data/two_stage/
+  stage1/
+    train.jsonl
+    val.jsonl
+  stage2/
+    train.jsonl
+    val.jsonl
+    images/
+      train/
+      val/
+  reports/
+    prepare_two_stage_report.json
+```
+
+Stage 2 uses crop-local coordinates. For every target instance:
+
+- the crop is centered on the target bbox
+- default padding ratio is `0.5`
+- out-of-bound crop area is padded with black pixels
+- prompt hints and training targets are reprojected into the crop-local `[0,999]` coordinate system
+
 ## Synthetic Post-Training Data
 
 Synthetic data generation lives under:
@@ -257,6 +302,68 @@ python scripts/train.py \
 ```
 
 Use `--resume-from` only when you want to continue the same interrupted run.
+
+### Two-Stage LoRA Training
+
+Stage 1, 2B:
+
+```bash
+python scripts/train.py --config configs/train_stage1_lora.yaml
+```
+
+Stage 1, 4B:
+
+```bash
+python scripts/train.py --config configs/train_stage1_lora_4b.yaml
+```
+
+Stage 2, 2B:
+
+```bash
+python scripts/train.py --config configs/train_stage2_lora.yaml
+```
+
+Stage 2, 4B:
+
+```bash
+python scripts/train.py --config configs/train_stage2_lora_4b.yaml
+```
+
+Stage 2 records already carry per-sample prompts and targets, so the training
+stack reuses the normal `scripts/train.py` entrypoint.
+
+## Two-Stage Inference
+
+Run the two-stage pipeline with separate Stage 1 and Stage 2 checkpoints:
+
+```bash
+python scripts/infer_two_stage.py \
+  --stage1-config configs/train_stage1_lora_4b.yaml \
+  --stage1-checkpoint outputs/qwen3vl-s1-lora/4b/checkpoints/best \
+  --stage2-config configs/train_stage2_lora_4b.yaml \
+  --stage2-checkpoint outputs/qwen3vl-s2-lora/4b/checkpoints/best \
+  --image path/to/example.png \
+  --output-dir outputs/two_stage_demo
+```
+
+Two-stage inference flow:
+
+1. Stage 1 predicts `label + bbox + 2-point keypoints` on the full image.
+2. Each Stage 1 instance becomes one padded crop.
+3. Stage 2 receives that crop plus crop-local text hints and outputs the full keypoint chain.
+4. Stage 2 keypoints are mapped back into original-image coordinates.
+
+## Two-Stage Demo
+
+Launch the two-stage Gradio app with:
+
+```bash
+python app/demo_two_stage.py \
+  --stage1-config configs/train_stage1_lora_4b.yaml \
+  --stage1-checkpoint outputs/qwen3vl-s1-lora/4b/checkpoints/best \
+  --stage2-config configs/train_stage2_lora_4b.yaml \
+  --stage2-checkpoint outputs/qwen3vl-s2-lora/4b/checkpoints/best
+```
 
 ### Two-Stage Training Launcher
 

@@ -77,11 +77,31 @@ python scripts/prepare_data.py \
 ## 推理入口
 
 - CLI：`scripts/infer.py`
+- 两阶段 CLI：`scripts/infer_two_stage.py`
 - Demo：`app/demo.py`
+- 两阶段 Demo：`app/demo_two_stage.py`
 - 推理配置走 `.env` / 环境变量，不走训练 YAML
 - demo 现在支持切换：
   - base model
   - checkpoint
+
+## 两阶段实验入口
+
+- 两阶段数据准备：`scripts/prepare_two_stage_data.py`
+- Stage 1 训练配置：
+  - `configs/train_stage1_lora.yaml`
+  - `configs/train_stage1_lora_4b.yaml`
+- Stage 2 训练配置：
+  - `configs/train_stage2_lora.yaml`
+  - `configs/train_stage2_lora_4b.yaml`
+
+当前两阶段约定：
+
+- Stage 1：整图输出 `label + bbox + 2-point keypoints`
+- Stage 2：输入单目标 crop 和 crop-local 文本 hint，输出该目标箭头完整点列
+- Stage 2 的 target/prompt 坐标都必须是 crop-local `[0,999]`
+- Stage 2 crop 默认 `padding_ratio = 0.5`
+- crop 超出原图边界时，黑边补齐
 
 ## 当前经验结论
 
