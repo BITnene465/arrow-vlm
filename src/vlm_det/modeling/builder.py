@@ -202,22 +202,22 @@ def build_model_tokenizer_processor(config: ExperimentRuntimeConfig) -> BuildArt
         _freeze_all_parameters(model)
         if not config.lora.enabled:
             raise ValueError("finetune.mode='lora' requires lora.enabled=true.")
-        target_modules = list(config.lora.target_modules)
+        target_modules = list(config.lora.lang_target_modules)
         if not config.model.freeze_vision_tower:
-            vision_target_modules = _collect_lora_target_module_names(
+            vis_target_modules = _collect_lora_target_module_names(
                 model,
                 include_name_substrings=config.model.vision_name_substrings,
                 exclude_name_substrings=config.model.projector_name_substrings,
-                suffixes=config.lora.vision_target_modules,
+                suffixes=config.lora.vis_target_modules,
             )
-            if not vision_target_modules:
+            if not vis_target_modules:
                 raise ValueError(
                     "freeze_vision_tower=false was requested in LoRA mode, but no visual target modules were found. "
-                    "Check model.vision_name_substrings and lora.vision_target_modules."
+                    "Check model.vision_name_substrings and lora.vis_target_modules."
                 )
-            target_modules.extend(vision_target_modules)
+            target_modules.extend(vis_target_modules)
             print(
-                f"[builder] enabling LoRA on {len(vision_target_modules)} visual modules.",
+                f"[builder] enabling LoRA on {len(vis_target_modules)} visual modules.",
                 flush=True,
             )
         lora_config = LoraConfig(

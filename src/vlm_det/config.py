@@ -74,7 +74,7 @@ class LoraConfig:
     alpha: int = 32
     dropout: float = 0.05
     bias: str = "none"
-    target_modules: list[str] = field(
+    lang_target_modules: list[str] = field(
         default_factory=lambda: [
             "q_proj",
             "k_proj",
@@ -85,7 +85,7 @@ class LoraConfig:
             "down_proj",
         ]
     )
-    vision_target_modules: list[str] = field(
+    vis_target_modules: list[str] = field(
         default_factory=lambda: [
             "attn.qkv",
             "attn.proj",

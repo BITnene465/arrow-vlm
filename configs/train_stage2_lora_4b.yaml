@@ -52,7 +52,8 @@ lora:
   alpha: 64
   dropout: 0.05
   bias: none
-  target_modules:
+  # Language tower LoRA targets.
+  lang_target_modules:
     - q_proj
     - k_proj
     - v_proj
@@ -60,6 +61,12 @@ lora:
     - gate_proj
     - up_proj
     - down_proj
+  # Visual tower LoRA targets; only used when freeze_vision_tower=false.
+  vis_target_modules:
+    - attn.qkv
+    - attn.proj
+    - mlp.linear_fc1
+    - mlp.linear_fc2
 
 train:
   epochs: 3
