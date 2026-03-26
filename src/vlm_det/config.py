@@ -85,6 +85,14 @@ class LoraConfig:
             "down_proj",
         ]
     )
+    vision_target_modules: list[str] = field(
+        default_factory=lambda: [
+            "attn.qkv",
+            "attn.proj",
+            "mlp.linear_fc1",
+            "mlp.linear_fc2",
+        ]
+    )
 
 
 @dataclass
