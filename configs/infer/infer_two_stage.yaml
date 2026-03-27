@@ -20,8 +20,8 @@ stage1:
 
 stage2:
   model:
-    min_pixels: 200704
-    max_pixels: 1048576
+    min_pixels: 50176
+    max_pixels: 262144
   prompt:
     system_prompt: ""
     user_prompt_template: |
@@ -30,6 +30,7 @@ stage2:
       Output only the complete keypoints_2d of this arrow as a JSON array of points in [0,999].
       For single_arrow: tail to head.
       For double_arrow: upper-left head first.
+  batch_size: 4
   eval:
     max_new_tokens: 256
     num_beams: 1

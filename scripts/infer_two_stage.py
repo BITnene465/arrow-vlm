@@ -21,6 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--image", required=True)
     parser.add_argument("--stage1-max-new-tokens", type=int, default=None)
     parser.add_argument("--stage2-max-new-tokens", type=int, default=None)
+    parser.add_argument("--stage2-batch-size", type=int, default=None)
     parser.add_argument("--output-dir", default=None)
     return parser.parse_args()
 
@@ -55,6 +56,7 @@ def main() -> None:
         image,
         stage1_max_new_tokens=args.stage1_max_new_tokens,
         stage2_max_new_tokens=args.stage2_max_new_tokens,
+        stage2_batch_size=args.stage2_batch_size,
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     final_prediction = report["final_prediction"]

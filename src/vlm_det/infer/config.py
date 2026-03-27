@@ -58,6 +58,7 @@ class TwoStageStageInferenceConfig:
     model: InferModelConfig = field(default_factory=InferModelConfig)
     prompt: InferPromptConfig = field(default_factory=InferPromptConfig)
     eval: InferEvalConfig = field(default_factory=InferEvalConfig)
+    batch_size: int = 1
 
 
 @dataclass

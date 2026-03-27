@@ -16,8 +16,8 @@ model:
     - merger
     - projector
     - multi_modal_projector
-  min_pixels: 200704
-  max_pixels: 1048576
+  min_pixels: 50176
+  max_pixels: 262144
 
 tokenizer:
   num_bins: 1000

@@ -24,6 +24,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default=None)
     parser.add_argument("--stage1-max-new-tokens", type=int, default=None)
     parser.add_argument("--stage2-max-new-tokens", type=int, default=None)
+    parser.add_argument("--stage2-batch-size", type=int, default=None)
     return parser.parse_args()
 
 
@@ -170,6 +171,7 @@ def build_demo(args: argparse.Namespace):
         stage2_checkpoint: str,
         stage1_max_new_tokens: int,
         stage2_max_new_tokens: int,
+        stage2_batch_size: int,
     ):
         if image is None:
             raise gr.Error("Please upload an image.")
@@ -185,6 +187,7 @@ def build_demo(args: argparse.Namespace):
             pil_image,
             stage1_max_new_tokens=stage1_max_new_tokens,
             stage2_max_new_tokens=stage2_max_new_tokens if enable_stage2 else None,
+            stage2_batch_size=stage2_batch_size if enable_stage2 else None,
         )
         stage1_prediction = report["stage1_report"]["strict"]["prediction"] or report["stage1_report"]["lenient"]["prediction"]
         final_prediction = report["final_prediction"]
@@ -204,6 +207,7 @@ def build_demo(args: argparse.Namespace):
 
     stage1_default_max_new_tokens = args.stage1_max_new_tokens or infer_config.stage1.eval.max_new_tokens or 2048
     stage2_default_max_new_tokens = args.stage2_max_new_tokens or infer_config.stage2.eval.max_new_tokens or 256
+    stage2_default_batch_size = args.stage2_batch_size or infer_config.stage2.batch_size or 1
 
     with gr.Blocks(title="ArrowVLM Two-Stage Demo") as demo:
         gr.Markdown("## ArrowVLM Two-Stage Demo\n可只看 Stage 1，也可启用 Stage 2 做 crop refinement。")
@@ -246,6 +250,11 @@ def build_demo(args: argparse.Namespace):
                     value=stage2_default_max_new_tokens,
                     precision=0,
                     label="Stage2 Max New Tokens",
+                )
+                stage2_batch_size = gr.Number(
+                    value=stage2_default_batch_size,
+                    precision=0,
+                    label="Stage2 Batch Size",
                 )
                 image_input = gr.Image(type="pil", label="Input Image")
                 run_button = gr.Button("Run Two-Stage Inference", variant="primary")
@@ -304,6 +313,7 @@ def build_demo(args: argparse.Namespace):
                 stage2_checkpoint,
                 stage1_max_new_tokens,
                 stage2_max_new_tokens,
+                stage2_batch_size,
             ],
             outputs=[
                 input_gallery,
