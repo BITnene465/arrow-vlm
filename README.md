@@ -390,22 +390,25 @@ Behavior:
 
 ## Two-Stage Inference
 
-Run the current Stage 1 grounding inspection flow with:
+Run two-stage inference with:
 
 ```bash
 python scripts/infer_two_stage.py \
   --config configs/infer/infer_two_stage.yaml \
   --stage1-checkpoint outputs/qwen3vl-s1-lora/4b/checkpoints/best \
+  --stage2-checkpoint outputs/qwen3vl-s2-lora/4b/checkpoints/best \
   --image path/to/example.png \
   --output-dir outputs/two_stage_demo
 ```
 
 Current two-stage flow:
 
-1. Stage 1 grounding predicts `label + bbox` on the full image.
-2. `demo_two_stage` and `infer_two_stage.py` currently serve as Stage 1 inspection tools.
-3. The previous Stage 2 refinement path was tied to the retired Stage 1 `bbox + 2-point hint` formulation.
-4. Stage 2 will be reintroduced after its task definition is redesigned around the new grounding-only Stage 1.
+1. Stage 1 grounding predicts `label + bbox` using mixed proposals:
+   - full image
+   - ratio-driven multi-scale tiles
+2. Stage 1 proposals are merged with `label + IoU` deduplication.
+3. Stage 2 crops each merged proposal and predicts the main arrow skeleton.
+4. Omitting `--stage2-checkpoint` keeps the flow in Stage1-only inspection mode.
 
 ## Two-Stage Demo
 

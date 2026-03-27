@@ -59,6 +59,12 @@ class TwoStageStageInferenceConfig:
     prompt: InferPromptConfig = field(default_factory=InferPromptConfig)
     eval: InferEvalConfig = field(default_factory=InferEvalConfig)
     batch_size: int = 1
+    include_full_image: bool = True
+    tile_size_ratios: list[float] = field(default_factory=list)
+    min_tile_size: int = 512
+    max_tile_size: int = 1280
+    tile_stride_ratio: float = 0.75
+    proposal_dedup_iou_threshold: float = 0.65
 
 
 @dataclass

@@ -31,4 +31,7 @@ python app/demo_two_stage.py \
 - Stage1 可视化
 - Stage2 / 最终可视化
 
-当前 `demo_two_stage` 主要用于 Stage1 grounding 可视化检查。
+当前 `demo_two_stage` 同时支持：
+
+- Stage1-only grounding 可视化检查
+- 完整 two-stage 推理可视化

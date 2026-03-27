@@ -1,4 +1,10 @@
 stage1:
+  include_full_image: true
+  tile_size_ratios: [0.35, 0.5]
+  min_tile_size: 512
+  max_tile_size: 1280
+  tile_stride_ratio: 0.75
+  proposal_dedup_iou_threshold: 0.65
   model:
     min_pixels: 200704
     max_pixels: 1048576
