@@ -13,8 +13,7 @@ python app/demo.py \
 ```bash
 python app/demo_two_stage.py \
   --config configs/infer/infer_two_stage.yaml \
-  --stage1-checkpoint outputs/qwen3vl-s1-lora/4b/your-stage1-run/checkpoints/best \
-  --stage2-checkpoint outputs/qwen3vl-s2-lora/4b/your-stage2-run/checkpoints/best
+  --stage1-checkpoint outputs/qwen3vl-s1-lora/4b/your-stage1-run/checkpoints/best
 ```
 
 只看 Stage 1：
@@ -32,7 +31,4 @@ python app/demo_two_stage.py \
 - Stage1 可视化
 - Stage2 / 最终可视化
 
-如果没有加载 Stage 2 checkpoint：
-
-- 页面会提示当前处于 Stage1-only 模式
-- 只显示 Stage1 可视化
+当前 `demo_two_stage` 主要用于 Stage1 grounding 可视化检查。

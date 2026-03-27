@@ -114,7 +114,7 @@ def _extract_runtime_payload_from_checkpoint_meta(checkpoint_path: str | Path) -
     meta = load_checkpoint_meta(checkpoint_path)
     checkpoint_config = meta.get("config", {})
     runtime_payload: dict[str, Any] = {}
-    for section_name in ("model", "tokenizer", "prompt", "finetune", "lora", "eval", "train"):
+    for section_name in ("model", "tokenizer", "task", "prompt", "finetune", "lora", "eval", "train"):
         section_value = checkpoint_config.get(section_name)
         if isinstance(section_value, dict):
             runtime_payload[section_name] = section_value

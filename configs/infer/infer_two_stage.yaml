@@ -5,13 +5,9 @@ stage1:
   prompt:
     system_prompt: ""
     user_prompt: |
-      Detect all arrows and output only a JSON array, with no markdown and no extra text.
-      Normalize every coordinate to an integer in [0,999].
-      Each item must be either {"label":"single_arrow","bbox_2d":[x1,y1,x2,y2],"keypoints_2d":[[x,y],[x,y]]}
-      or {"label":"double_arrow","bbox_2d":[x1,y1,x2,y2],"keypoints_2d":[[x,y],[x,y]]}.
-      For single_arrow, keypoints must be ordered from tail to head.
-      For double_arrow, keypoints[0] must be the upper-left head and keypoints[1] the other head.
-      Output exactly two keypoints for each arrow.
+      Detect all arrows in the image and return their bounding boxes as a JSON array.
+      Use relative coordinates in [0,999].
+      Each item must be {"label":"single_arrow"|"double_arrow","bbox_2d":[x1,y1,x2,y2]}.
   eval:
     max_new_tokens: 2048
     num_beams: 1
@@ -25,11 +21,10 @@ stage2:
   prompt:
     system_prompt: ""
     user_prompt_template: |
-      Target:
-      {"label":"{{label}}","bbox_2d":{{bbox_2d}},"keypoints_2d":{{keypoints_2d}}}
-      Output only the complete keypoints_2d of this arrow as a JSON array of points in [0,999].
-      For single_arrow: tail to head.
-      For double_arrow: upper-left head first.
+      Output only the keypoints_2d skeleton of the main arrow in this crop as a JSON array of points in [0,999].
+      Format: [[x0,y0],[x1,y1],...]
+      For single_arrow, output the skeleton from tail to head.
+      For double_arrow, output the skeleton from the upper-left head to the other head.
   batch_size: 4
   eval:
     max_new_tokens: 256
@@ -37,7 +32,7 @@ stage2:
     do_sample: false
     use_cache: true
 
-padding_ratio: 0.5
+padding_ratio: 0.2
 
 app:
   host: 127.0.0.1

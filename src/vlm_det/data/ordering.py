@@ -7,6 +7,10 @@ def sort_instances_canonical(instances: list[Any]) -> list[Any]:
     return sorted(instances, key=canonical_instance_sort_key)
 
 
+def sort_grounding_instances_canonical(instances: list[Any]) -> list[Any]:
+    return sorted(instances, key=grounding_instance_sort_key)
+
+
 def normalize_instance_keypoint_order(instance: Any) -> Any:
     label = _get_instance_value(instance, "label")
     keypoints = _get_instance_value(instance, "keypoints")
@@ -50,6 +54,22 @@ def canonical_instance_sort_key(instance: Any) -> tuple[float, ...]:
         head_y,
         head_x,
         n_points,
+    )
+
+
+def grounding_instance_sort_key(instance: Any) -> tuple[float, ...]:
+    bbox = _get_instance_value(instance, "bbox")
+    label = str(_get_instance_value(instance, "label"))
+    x1 = float(bbox[0])
+    y1 = float(bbox[1])
+    x2 = float(bbox[2])
+    y2 = float(bbox[3])
+    return (
+        y1,
+        x1,
+        y2,
+        x2,
+        label,
     )
 
 

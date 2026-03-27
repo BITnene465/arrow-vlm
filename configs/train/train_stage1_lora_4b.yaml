@@ -23,16 +23,15 @@ tokenizer:
   num_bins: 1000
   add_eos_token: true
 
+task:
+  type: grounding
+
 prompt:
   system_prompt: ""
   user_prompt: |
-    Detect all arrows and output only a JSON array, with no markdown and no extra text.
-    Normalize every coordinate to an integer in [0,999].
-    Each item must be either {"label":"single_arrow","bbox_2d":[x1,y1,x2,y2],"keypoints_2d":[[x,y],[x,y]]}
-    or {"label":"double_arrow","bbox_2d":[x1,y1,x2,y2],"keypoints_2d":[[x,y],[x,y]]}.
-    For single_arrow, keypoints must be ordered from tail to head.
-    For double_arrow, keypoints[0] must be the upper-left head and keypoints[1] the other head.
-    Output exactly two keypoints for each arrow.
+    Detect all arrows in the image and return their bounding boxes as a JSON array.
+    Use relative coordinates in [0,999].
+    Each item must be {"label":"single_arrow"|"double_arrow","bbox_2d":[x1,y1,x2,y2]}.
 
 data:
   train_path: data/two_stage/stage1/train.jsonl
@@ -92,14 +91,13 @@ train:
   find_unused_parameters: false
 
 eval:
-  per_device_batch_size: 8
+  per_device_batch_size: 12
   max_new_tokens: 2048
   num_beams: 1
   do_sample: false
   use_cache: true
   bbox_iou_threshold: 0.5
-  strict_point_distance_px: 8.0
-  monitor_metric: val/end_to_end_score
+  monitor_metric: val/bbox_f1_at_iou50
   monitor_mode: max
 
 logging:

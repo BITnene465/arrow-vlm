@@ -59,6 +59,11 @@ class PromptConfig:
 
 
 @dataclass
+class TaskConfig:
+    type: str = "arrow_structure"
+
+
+@dataclass
 class DataConfig:
     train_path: str = "data/processed/train.jsonl"
     val_path: str = "data/processed/val.jsonl"
@@ -162,6 +167,7 @@ class ExperimentRuntimeConfig:
     experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     tokenizer: TokenizerConfig = field(default_factory=TokenizerConfig)
+    task: TaskConfig = field(default_factory=TaskConfig)
     prompt: PromptConfig = field(default_factory=PromptConfig)
     data: DataConfig = field(default_factory=DataConfig)
     finetune: FineTuneConfig = field(default_factory=FineTuneConfig)

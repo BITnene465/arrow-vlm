@@ -10,10 +10,6 @@ from PIL import Image
 from vlm_det.config import ExperimentRuntimeConfig
 from vlm_det.data.two_stage import (
     build_padded_crop,
-    quantize_bbox_2d,
-    quantize_keypoints_2d,
-    to_crop_local_bbox,
-    to_crop_local_keypoints,
 )
 from vlm_det.infer.config import (
     TwoStageInferenceConfig,
@@ -254,102 +250,95 @@ class TwoStageInferenceRunner:
                 "stage2_results": [],
                 "final_prediction": {"instances": []},
             }
-
-        final_instances: list[dict[str, Any]] = []
-        stage2_results: list[dict[str, Any]] = []
-        stage2_requests: list[Stage2Request] = []
-        stage2_fallback_instances: dict[int, dict[str, Any]] = {}
-        for index, instance in enumerate(stage1_prediction.get("instances", [])):
-            fallback_instance = {
-                "label": instance["label"],
-                "bbox": [float(value) for value in instance["bbox"]],
-                "keypoints": [[float(x), float(y)] for x, y in instance["keypoints"]],
+        if self.stage2_runner is None:
+            return {
+                "stage1_raw_text": stage1_raw_text,
+                "stage1_report": stage1_report,
+                "stage2_results": [],
+                "final_prediction": stage1_prediction,
             }
-            if self.stage2_runner is None:
-                final_instances.append(fallback_instance)
+
+        stage1_instances = stage1_prediction.get("instances", [])
+        if stage2_batch_size is not None:
+            self.stage2_runner.batch_size = max(int(stage2_batch_size), 1)
+
+        stage2_requests: list[Stage2Request] = []
+        for index, instance in enumerate(stage1_instances):
+            bbox = instance.get("bbox", [])
+            label = str(instance.get("label", ""))
+            if len(bbox) != 4:
                 continue
             crop_image, crop_box = build_padded_crop(
                 pil_image,
-                bbox=instance["bbox"],
+                bbox=[float(value) for value in bbox],
                 padding_ratio=self.padding_ratio,
             )
             crop_width, crop_height = crop_image.size
-            local_bbox = to_crop_local_bbox(instance["bbox"], crop_box)
-            local_hint_keypoints = to_crop_local_keypoints(instance["keypoints"], crop_box)
-            local_bbox_2d = quantize_bbox_2d(
-                local_bbox,
-                crop_width,
-                crop_height,
-                self.stage2_runner.codec.num_bins,
-            )
-            local_hint_keypoints_2d = quantize_keypoints_2d(
-                local_hint_keypoints,
-                crop_width,
-                crop_height,
-                self.stage2_runner.codec.num_bins,
-            )
-            stage2_fallback_instances[int(index)] = fallback_instance
+            local_bbox = [
+                float(bbox[0]) - float(crop_box[0]),
+                float(bbox[1]) - float(crop_box[1]),
+                float(bbox[2]) - float(crop_box[0]),
+                float(bbox[3]) - float(crop_box[1]),
+            ]
+            local_bbox_2d = self.stage2_runner.codec.num_bins and [
+                self.stage2_runner.codec._quantize(float(local_bbox[0]), crop_width),
+                self.stage2_runner.codec._quantize(float(local_bbox[1]), crop_height),
+                self.stage2_runner.codec._quantize(float(local_bbox[2]), crop_width),
+                self.stage2_runner.codec._quantize(float(local_bbox[3]), crop_height),
+            ]
             stage2_requests.append(
                 Stage2Request(
-                    index=int(index),
+                    index=index,
                     crop_image=crop_image,
                     crop_box=[int(value) for value in crop_box],
-                    label=str(instance["label"]),
-                    bbox_2d=[int(value) for value in local_bbox_2d],
-                    hint_keypoints_2d=[[int(x), int(y)] for x, y in local_hint_keypoints_2d],
+                    label=label,
+                    bbox_2d=local_bbox_2d,
+                    hint_keypoints_2d=[],
                 )
             )
-        if self.stage2_runner is not None and stage2_requests:
-            original_batch_size = self.stage2_runner.batch_size
-            try:
-                if stage2_batch_size is not None:
-                    self.stage2_runner.batch_size = max(int(stage2_batch_size), 1)
-                batched_results = self.stage2_runner.predict_batch(
-                    stage2_requests,
-                    max_new_tokens=stage2_max_new_tokens,
-                )
-            finally:
-                self.stage2_runner.batch_size = original_batch_size
-            results_by_index = {int(item.index): item for item in batched_results}
-            for index, instance in enumerate(stage1_prediction.get("instances", [])):
-                stage2_result = results_by_index.get(int(index))
-                if stage2_result is None:
-                    final_instances.append(stage2_fallback_instances[int(index)])
-                    continue
-                stage2_report = stage2_result.report
-                stage2_prediction = stage2_report["strict"]["prediction"] or stage2_report["lenient"]["prediction"]
-                if stage2_prediction is None:
-                    global_keypoints = [list(point) for point in stage2_fallback_instances[int(index)]["keypoints"]]
-                else:
-                    local_pred_keypoints = stage2_prediction["keypoints"]
-                    crop_x1, crop_y1, _crop_x2, _crop_y2 = stage2_result.crop_box
-                    global_keypoints = [
-                        [
-                            min(max(float(point[0]) + float(crop_x1), 0.0), float(pil_image.width - 1)),
-                            min(max(float(point[1]) + float(crop_y1), 0.0), float(pil_image.height - 1)),
-                        ]
-                        for point in local_pred_keypoints
-                    ]
+
+        batched_results = self.stage2_runner.predict_batch(
+            stage2_requests,
+            max_new_tokens=stage2_max_new_tokens,
+        )
+
+        final_instances: list[dict[str, Any]] = []
+        stage2_reports: list[dict[str, Any]] = []
+        for request, result in zip(stage2_requests, batched_results):
+            lenient_prediction = result.report["lenient"]["prediction"]
+            strict_prediction = result.report["strict"]["prediction"]
+            local_prediction = strict_prediction or lenient_prediction
+            local_keypoints = local_prediction.get("keypoints", []) if local_prediction else []
+            crop_width, crop_height = request.crop_image.size
+            if local_prediction is None:
                 final_instances.append(
                     {
-                        "label": instance["label"],
-                        "bbox": [float(value) for value in instance["bbox"]],
-                        "keypoints": global_keypoints,
+                        "label": request.label,
+                        "bbox": [float(value) for value in stage1_instances[request.index]["bbox"]],
+                        "keypoints": [],
                     }
                 )
-                stage2_results.append(
-                    {
-                        "index": int(index),
-                        "crop_box": stage2_result.crop_box,
-                        "raw_text": stage2_result.raw_text,
-                        "report": stage2_report,
-                    }
-                )
+                stage2_reports.append(result.report)
+                continue
+
+            local_keypoints = local_prediction.get("keypoints", [])
+            global_keypoints = [
+                [float(point[0]) + float(request.crop_box[0]), float(point[1]) + float(request.crop_box[1])]
+                for point in local_keypoints
+            ]
+            final_instances.append(
+                {
+                    "label": request.label,
+                    "bbox": [float(value) for value in stage1_instances[request.index]["bbox"]],
+                    "keypoints": global_keypoints,
+                }
+            )
+            stage2_reports.append(result.report)
 
         return {
             "stage1_raw_text": stage1_raw_text,
             "stage1_report": stage1_report,
-            "stage2_results": stage2_results,
+            "stage2_results": stage2_reports,
             "final_prediction": {"instances": final_instances},
         }
 

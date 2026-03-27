@@ -12,6 +12,7 @@ from vlm_det.infer.config import InferenceSettings, OneStageInferenceConfig, loa
 from vlm_det.modeling.builder import BuildArtifacts, build_model_tokenizer_processor
 from vlm_det.prompting import build_chat_prompt, temporary_padding_side
 from vlm_det.protocol.codec import ArrowCodec
+from vlm_det.protocol.grounding_codec import GroundingCodec
 from vlm_det.utils.checkpoint import load_training_checkpoint
 from vlm_det.utils.distributed import reset_model_runtime_state, unwrap_model
 from vlm_det.utils.generation import (
@@ -27,7 +28,7 @@ class ArrowInferenceRunner:
     settings: InferenceSettings
     config: ExperimentRuntimeConfig
     artifacts: BuildArtifacts
-    codec: ArrowCodec
+    codec: ArrowCodec | GroundingCodec
     device: torch.device
 
     def predict(
@@ -210,7 +211,10 @@ def load_inference_runner(
         resume_training_state=False,
     )
     unwrap_model(artifacts.model).eval()
-    codec = ArrowCodec(num_bins=config.tokenizer.num_bins)
+    if config.task.type == "grounding":
+        codec = GroundingCodec(num_bins=config.tokenizer.num_bins)
+    else:
+        codec = ArrowCodec(num_bins=config.tokenizer.num_bins)
     return ArrowInferenceRunner(
         settings=settings,
         config=config,

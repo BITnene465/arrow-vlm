@@ -161,13 +161,13 @@ Two-stage experiments derive two datasets from the processed annotations:
 
 - `stage1`: mixed full-image + tile supervision
   - original full-image samples
-  - multi-scale sliding-window samples
+  - ratio-based multi-scale sliding-window samples
   - density-driven crop samples
-  - fixed-length target: `label + bbox + 2-point keypoints`
+  - grounding target: `label + bbox`
+  - prompt style aligned with the Qwen3-VL grounding cookbook: short instruction + relative coordinates
 - `stage2`: target-conditioned crop supervision
   - crop image
-  - crop-local text hint
-  - crop-local full keypoint chain target
+  - main-arrow keypoint skeleton target
 
 Prepare Stage1:
 
@@ -177,9 +177,12 @@ python scripts/prepare_stage1_data.py \
   --output-dir data/two_stage \
   --num-workers 8 \
   --stage1-include-full-image \
-  --stage1-tile-sizes 768,1024 \
+  --stage1-tile-size-ratios 0.35,0.5 \
+  --stage1-min-tile-size 512 \
+  --stage1-max-tile-size 1280 \
   --stage1-density-min-instances 5 \
-  --stage1-density-max-instances 30
+  --stage1-density-max-instances 30 \
+  --stage1-dedup-iou-threshold 0.9
 ```
 
 Prepare Stage2:
@@ -188,9 +191,9 @@ Prepare Stage2:
 python scripts/prepare_stage2_data.py \
   --input-dir data/processed \
   --output-dir data/two_stage \
-  --padding-ratio 0.5 \
+  --padding-ratio 0.2 \
   --num-workers 8 \
-  --stage2-aug-copies 2
+  --stage2-aug-copies 0
 ```
 
 This writes:
@@ -211,14 +214,22 @@ data/two_stage/
     prepare_stage2_report.json
 ```
 
+Stage1 tile sizing is now ratio-driven:
+
+- crop sizes are resolved from image short-side ratios
+- `stage1_min_tile_size` / `stage1_max_tile_size` clamp the resolved pixel size
+- an instance is kept in a tile only when its bbox is fully enclosed by that tile
+- any tile that partially intersects a bbox is discarded instead of becoming a training sample
+- near-duplicate crops with the same instance set are removed using `stage1_dedup_iou_threshold`
+
 Stage 2 uses crop-local coordinates. For every target instance:
 
 - the crop is centered on the target bbox
-- default padding ratio is `0.5`
+- default padding ratio is `0.2`
 - out-of-bound crop area is padded with black pixels
-- prompt hints and training targets are reprojected into the crop-local `[0,999]` coordinate system
-- stage2 JSONL stores structured `condition` fields, and the final prompt is rendered at training time from `prompt.user_prompt_template`
-- stage2 adds offline noisy hint copies by default to simulate Stage 1 bbox / endpoint errors
+- training targets are reprojected into the crop-local `[0,999]` coordinate system
+- stage2 JSONL still stores structured `condition` fields for compatibility, while the current prompt focuses on the main arrow in the crop
+- stage2 does not add noisy hint copies by default; keep `--stage2-aug-copies 0` unless you explicitly want augmentation
 
 More detailed usage is documented in:
 
@@ -379,25 +390,22 @@ Behavior:
 
 ## Two-Stage Inference
 
-Run the two-stage pipeline with an infer config plus separate Stage 1 / Stage 2 checkpoints:
+Run the current Stage 1 grounding inspection flow with:
 
 ```bash
 python scripts/infer_two_stage.py \
   --config configs/infer/infer_two_stage.yaml \
   --stage1-checkpoint outputs/qwen3vl-s1-lora/4b/checkpoints/best \
-  --stage2-checkpoint outputs/qwen3vl-s2-lora/4b/checkpoints/best \
   --image path/to/example.png \
   --output-dir outputs/two_stage_demo
 ```
 
-If you only want to inspect Stage 1, omit `--stage2-checkpoint`.
+Current two-stage flow:
 
-Two-stage inference flow:
-
-1. Stage 1 predicts `label + bbox + 2-point keypoints` on the full image.
-2. Each Stage 1 instance becomes one padded crop.
-3. Stage 2 receives that crop plus crop-local text hints and outputs the full keypoint chain.
-4. Stage 2 keypoints are mapped back into original-image coordinates.
+1. Stage 1 grounding predicts `label + bbox` on the full image.
+2. `demo_two_stage` and `infer_two_stage.py` currently serve as Stage 1 inspection tools.
+3. The previous Stage 2 refinement path was tied to the retired Stage 1 `bbox + 2-point hint` formulation.
+4. Stage 2 will be reintroduced after its task definition is redesigned around the new grounding-only Stage 1.
 
 ## Two-Stage Demo
 
@@ -406,8 +414,7 @@ Launch the two-stage Gradio app with:
 ```bash
 python app/demo_two_stage.py \
   --config configs/infer/infer_two_stage.yaml \
-  --stage1-checkpoint outputs/qwen3vl-s1-lora/4b/checkpoints/best \
-  --stage2-checkpoint outputs/qwen3vl-s2-lora/4b/checkpoints/best
+  --stage1-checkpoint outputs/qwen3vl-s1-lora/4b/checkpoints/best
 ```
 
 `demo_two_stage.py` 固定展示三张图：

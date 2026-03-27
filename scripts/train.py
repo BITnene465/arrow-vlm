@@ -14,6 +14,7 @@ from vlm_det.data.dataset import ArrowSFTDataset
 from vlm_det.eval.evaluator import ArrowEvaluator
 from vlm_det.modeling.builder import build_model_tokenizer_processor
 from vlm_det.protocol.codec import ArrowCodec
+from vlm_det.protocol.grounding_codec import GroundingCodec
 from vlm_det.train.optim import build_optimizer, build_scheduler
 from vlm_det.train.trainer import ArrowTrainer
 from vlm_det.utils.distributed import barrier, cleanup_distributed, init_distributed, seed_everything
@@ -149,7 +150,10 @@ def main() -> None:
     print("[startup] building model, tokenizer, and processor...", flush=True)
     build_artifacts = build_model_tokenizer_processor(config)
     print("[startup] building codec and collator...", flush=True)
-    codec = ArrowCodec(num_bins=config.tokenizer.num_bins)
+    if config.task.type == "grounding":
+        codec = GroundingCodec(num_bins=config.tokenizer.num_bins)
+    else:
+        codec = ArrowCodec(num_bins=config.tokenizer.num_bins)
     train_collator = ArrowSFTCollator(
         processor=build_artifacts.processor,
         tokenizer=build_artifacts.tokenizer,

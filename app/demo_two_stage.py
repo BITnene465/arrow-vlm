@@ -15,7 +15,7 @@ from vlm_det.infer.visualize import draw_prediction, format_prediction_summary
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Launch a Gradio demo for two-stage ArrowVLM inference.")
+    parser = argparse.ArgumentParser(description="Launch a Gradio demo for two-stage arrow inference.")
     parser.add_argument("--config", default="configs/infer/infer_two_stage.yaml", help="Two-stage inference config path.")
     parser.add_argument("--stage1-checkpoint", default=None)
     parser.add_argument("--stage2-checkpoint", default=None)
@@ -75,10 +75,9 @@ def build_demo(args: argparse.Namespace):
     runner_holder = {
         "runner": initial_runner,
         "stage1_model": args.stage1_model or "",
-        "stage2_model": args.stage2_model or "",
         "stage1_checkpoint": args.stage1_checkpoint or "",
+        "stage2_model": args.stage2_model or "",
         "stage2_checkpoint": args.stage2_checkpoint or "",
-        "enable_stage2": bool(args.stage2_checkpoint),
     }
 
     def _gallery_items(image: Image.Image | None) -> list[Image.Image]:
@@ -87,7 +86,6 @@ def build_demo(args: argparse.Namespace):
     def _reload_runner(
         stage1_model: str,
         stage1_checkpoint: str,
-        enable_stage2: bool,
         stage2_model: str,
         stage2_checkpoint: str,
     ):
@@ -97,19 +95,15 @@ def build_demo(args: argparse.Namespace):
         stage2_checkpoint = stage2_checkpoint.strip()
         if not stage1_checkpoint:
             raise ValueError("Stage1 checkpoint path cannot be empty.")
-        if enable_stage2 and not stage2_checkpoint:
-            raise ValueError("Stage2 checkpoint path cannot be empty when Stage2 is enabled.")
         current = (
             runner_holder["stage1_model"],
             runner_holder["stage1_checkpoint"],
-            runner_holder["enable_stage2"],
             runner_holder["stage2_model"],
             runner_holder["stage2_checkpoint"],
         )
         requested = (
             stage1_model,
             stage1_checkpoint,
-            bool(enable_stage2),
             stage2_model,
             stage2_checkpoint,
         )
@@ -118,16 +112,15 @@ def build_demo(args: argparse.Namespace):
         new_runner = load_two_stage_inference_runner(
             config_path=args.config,
             stage1_checkpoint_path=stage1_checkpoint,
-            stage2_checkpoint_path=stage2_checkpoint if enable_stage2 else None,
+            stage2_checkpoint_path=stage2_checkpoint or None,
             device_name=args.device,
             stage1_model_name_or_path=stage1_model,
-            stage2_model_name_or_path=stage2_model if enable_stage2 else None,
+            stage2_model_name_or_path=stage2_model or None,
         )
         old_runner = runner_holder["runner"]
         runner_holder["runner"] = new_runner
         runner_holder["stage1_model"] = stage1_model
         runner_holder["stage1_checkpoint"] = stage1_checkpoint
-        runner_holder["enable_stage2"] = bool(enable_stage2)
         runner_holder["stage2_model"] = stage2_model
         runner_holder["stage2_checkpoint"] = stage2_checkpoint
         try:
@@ -145,28 +138,20 @@ def build_demo(args: argparse.Namespace):
         stage1_prediction = report["stage1_report"]["strict"]["prediction"] or report["stage1_report"]["lenient"]["prediction"]
         stage1_count = len(stage1_prediction.get("instances", [])) if stage1_prediction else 0
         stage1_recovered = bool(report["stage1_report"]["lenient"].get("recovered_prefix", False))
-        stage2_results = report["stage2_results"]
-        stage2_recovered = sum(
-            1 for item in stage2_results if item["report"]["lenient"].get("recovered_prefix", False)
-        )
-        if not stage2_results:
-            return (
-                f"Stage2 未加载，当前仅显示 Stage1 结果。"
-                f" Stage1 detected {stage1_count} arrows."
-                f" Recovered prefixes: stage1={stage1_recovered}."
-            )
+        stage2_loaded = runner_holder["stage2_checkpoint"].strip() != ""
+        stage2_refined = len(report.get("stage2_results", []))
         return (
-            f"Stage1 detected {stage1_count} arrows. "
-            f"Final output contains {len(instances)} arrows. "
-            f"Stage2 refined {len(stage2_results)} crops. "
-            f"Recovered prefixes: stage1={stage1_recovered}, stage2={stage2_recovered}."
+            f"{'当前运行两阶段推理。' if stage2_loaded else '当前仅运行 Stage1 grounding。'}"
+            f" Stage1 detected {stage1_count} arrows."
+            f" Final output contains {len(instances)} arrows."
+            f" Stage2 refined: {stage2_refined}."
+            f" Recovered prefixes: stage1={stage1_recovered}."
         )
 
     def run_inference(
         image: Image.Image | None,
         stage1_model: str,
         stage1_checkpoint: str,
-        enable_stage2: bool,
         stage2_model: str,
         stage2_checkpoint: str,
         stage1_max_new_tokens: int,
@@ -178,7 +163,6 @@ def build_demo(args: argparse.Namespace):
         runner = _reload_runner(
             stage1_model,
             stage1_checkpoint,
-            enable_stage2,
             stage2_model,
             stage2_checkpoint,
         )
@@ -186,23 +170,22 @@ def build_demo(args: argparse.Namespace):
         report = runner.predict(
             pil_image,
             stage1_max_new_tokens=stage1_max_new_tokens,
-            stage2_max_new_tokens=stage2_max_new_tokens if enable_stage2 else None,
-            stage2_batch_size=stage2_batch_size if enable_stage2 else None,
+            stage2_max_new_tokens=stage2_max_new_tokens,
+            stage2_batch_size=stage2_batch_size,
         )
         stage1_prediction = report["stage1_report"]["strict"]["prediction"] or report["stage1_report"]["lenient"]["prediction"]
         final_prediction = report["final_prediction"]
         stage1_overlay = draw_prediction(pil_image, stage1_prediction) if stage1_prediction is not None else pil_image
         final_overlay = draw_prediction(pil_image, final_prediction)
-        stage2_gallery = _gallery_items(final_overlay) if report["stage2_results"] else []
         return (
             _gallery_items(pil_image),
             _gallery_items(stage1_overlay),
-            stage2_gallery,
+            _gallery_items(final_overlay),
             _render_status(report),
             format_prediction_summary(final_prediction),
             json.dumps(final_prediction, ensure_ascii=False, indent=2),
             json.dumps(report["stage1_report"], ensure_ascii=False, indent=2),
-            json.dumps(report["stage2_results"], ensure_ascii=False, indent=2),
+            json.dumps(report.get("stage2_results", []), ensure_ascii=False, indent=2),
         )
 
     stage1_default_max_new_tokens = args.stage1_max_new_tokens or infer_config.stage1.eval.max_new_tokens or 2048
@@ -210,7 +193,7 @@ def build_demo(args: argparse.Namespace):
     stage2_default_batch_size = args.stage2_batch_size or infer_config.stage2.batch_size or 1
 
     with gr.Blocks(title="ArrowVLM Two-Stage Demo") as demo:
-        gr.Markdown("## ArrowVLM Two-Stage Demo\n可只看 Stage 1，也可启用 Stage 2 做 crop refinement。")
+        gr.Markdown("## ArrowVLM Two-Stage Demo\n可单独检查 Stage1 grounding，也可加载 Stage2 做两阶段推理。")
         with gr.Row():
             with gr.Column(scale=1):
                 stage1_model = gr.Dropdown(
@@ -224,10 +207,6 @@ def build_demo(args: argparse.Namespace):
                     value=runner_holder["stage1_checkpoint"] or None,
                     label="Stage1 Checkpoint",
                     allow_custom_value=True,
-                )
-                enable_stage2 = gr.Checkbox(
-                    value=runner_holder["enable_stage2"],
-                    label="Enable Stage2 Refinement",
                 )
                 stage2_model = gr.Dropdown(
                     choices=_discover_model_choices(runner_holder["stage2_model"]),
@@ -279,7 +258,7 @@ def build_demo(args: argparse.Namespace):
                         buttons=["fullscreen", "download"],
                     )
                     stage2_gallery = gr.Gallery(
-                        label="Stage2 / Final Overlay",
+                        label="Final Overlay",
                         columns=1,
                         height=300,
                         object_fit="contain",
@@ -294,7 +273,7 @@ def build_demo(args: argparse.Namespace):
                 final_json = gr.Code(language="json")
             with gr.Tab("Stage1 Report"):
                 stage1_json = gr.Code(language="json")
-            with gr.Tab("Stage2 Reports"):
+            with gr.Tab("Stage2 Report"):
                 stage2_json = gr.Code(language="json")
 
         image_input.change(
@@ -308,7 +287,6 @@ def build_demo(args: argparse.Namespace):
                 image_input,
                 stage1_model,
                 stage1_checkpoint,
-                enable_stage2,
                 stage2_model,
                 stage2_checkpoint,
                 stage1_max_new_tokens,

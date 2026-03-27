@@ -100,17 +100,21 @@ python scripts/prepare_data.py \
 
 当前两阶段约定：
 
-- Stage 1：整图输出 `label + bbox + 2-point keypoints`
-- Stage 2：输入单目标 crop 和 crop-local 文本 hint，输出该目标箭头完整点列
+- Stage 1：整图输出 `label + bbox`
+- Stage 1 grounding prompt 采用 Qwen3-VL 官方 grounding 风格：短自然语言指令 + 相对坐标 `[0,999]`
+- Stage 2：输入单目标 crop，输出该 crop 中 main arrow 的 `keypoints_2d` 骨架
 - Stage 2 的 target/prompt 坐标都必须是 crop-local `[0,999]`
-- Stage 2 prompt 采用配置模板渲染，数据记录只保存结构化 `condition`
+- Stage 2 prompt 采用配置模板渲染；当前 prompt 不再显式注入 `bbox/keypoints` 文本 hint，但数据记录仍保留 `condition` 以兼容现有链路
 - `demo_two_stage` 可在不提供 Stage 2 checkpoint 的情况下直接做 Stage 1 可视化检查
-- Stage 2 crop 默认 `padding_ratio = 0.5`
+- Stage 2 crop 默认 `padding_ratio = 0.2`
 - crop 超出原图边界时，黑边补齐
 - Stage1 现在支持三条线并行：
   - 原始整图样本
-  - 多尺度滑窗样本
+  - 按图像短边比例生成的多尺度滑窗样本
   - 按箭头数量区间筛选的 density crop 样本
+- Stage1 的 crop 尺寸现在按图像短边比例计算，并用 `stage1_min_tile_size` / `stage1_max_tile_size` 做像素上下限兜底
+- Stage1 tile 中的实例必须满足 `bbox` 被 tile **完整包含**；如果某个 tile 与任意 bbox 只是部分相交，该 tile 直接丢弃
+- Stage1 数据准备会自动去掉“实例集合相同且 crop 高度重叠”的近重复样本，默认用 `stage1_dedup_iou_threshold=0.9`
 
 ## 当前 LoRA 语义
 

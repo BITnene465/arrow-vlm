@@ -8,6 +8,7 @@ from torch.utils.data import Dataset
 
 from vlm_det.prompting import render_prompt_template
 from vlm_det.protocol.codec import ArrowCodec
+from vlm_det.protocol.grounding_codec import GroundingCodec
 from vlm_det.utils.io import load_jsonl
 
 # Training can encounter extremely large figure images. We only decode images
@@ -28,6 +29,7 @@ class ArrowSFTDataset(Dataset):
     ) -> None:
         self.records = load_jsonl(jsonl_path)
         self.codec = codec
+        self.grounding_codec = GroundingCodec(num_bins=codec.num_bins)
         self.system_prompt = system_prompt
         self.user_prompt = user_prompt
         self.system_prompt_template = system_prompt_template
@@ -39,6 +41,7 @@ class ArrowSFTDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict[str, Any]:
         record = self.records[index]
+        task_type = str(record.get("task_type", "one_stage"))
         image_path = Path(record["image_path"])
         image = Image.open(image_path).convert("RGB")
         record_gt_struct = record.get("gt_struct")
@@ -48,18 +51,15 @@ class ArrowSFTDataset(Dataset):
             instances = record.get("instances", [])
             gt_struct = {
                 "instances": [
-                    {
-                        "label": instance["label"],
-                        "bbox": instance["bbox"],
-                        "keypoints": instance["keypoints"],
-                    }
+                    self._build_gt_instance(instance, task_type=task_type)
                     for instance in instances
                 ]
             }
         target_text = record.get("target_text")
         if target_text is None:
-            target_text = self.codec.encode(
+            target_text = self._encode_target_text(
                 gt_struct,
+                task_type=task_type,
                 image_width=record["image_width"],
                 image_height=record["image_height"],
             )
@@ -79,7 +79,7 @@ class ArrowSFTDataset(Dataset):
             else:
                 user_prompt = self.user_prompt
         return {
-            "task_type": record.get("task_type", "one_stage"),
+            "task_type": task_type,
             "sample_id": record.get("sample_id", image_path.stem),
             "image_path": str(image_path),
             "image": image,
@@ -98,6 +98,7 @@ class ArrowSFTDataset(Dataset):
             return cached
         lengths: list[int] = []
         for record in self.records:
+            task_type = str(record.get("task_type", "one_stage"))
             record_gt_struct = record.get("gt_struct")
             if record_gt_struct is not None:
                 gt_struct = record_gt_struct
@@ -105,18 +106,15 @@ class ArrowSFTDataset(Dataset):
                 instances = record.get("instances", [])
                 gt_struct = {
                     "instances": [
-                        {
-                            "label": instance["label"],
-                            "bbox": instance["bbox"],
-                            "keypoints": instance["keypoints"],
-                        }
+                        self._build_gt_instance(instance, task_type=task_type)
                         for instance in instances
                     ]
                 }
             target_text = record.get("target_text")
             if target_text is None:
-                target_text = self.codec.encode(
+                target_text = self._encode_target_text(
                     gt_struct,
+                    task_type=task_type,
                     image_width=record["image_width"],
                     image_height=record["image_height"],
                 )
@@ -129,3 +127,33 @@ class ArrowSFTDataset(Dataset):
             lengths.append(len(tokenized["input_ids"]))
         self._target_token_lengths_cache[cache_key] = lengths
         return lengths
+
+    @staticmethod
+    def _build_gt_instance(instance: dict[str, Any], *, task_type: str) -> dict[str, Any]:
+        gt_instance = {
+            "label": instance["label"],
+            "bbox": instance["bbox"],
+        }
+        if task_type != "two_stage_stage1_grounding":
+            gt_instance["keypoints"] = instance["keypoints"]
+        return gt_instance
+
+    def _encode_target_text(
+        self,
+        gt_struct: dict[str, Any],
+        *,
+        task_type: str,
+        image_width: int,
+        image_height: int,
+    ) -> str:
+        if task_type == "two_stage_stage1_grounding":
+            return self.grounding_codec.encode(
+                gt_struct,
+                image_width=image_width,
+                image_height=image_height,
+            )
+        return self.codec.encode(
+            gt_struct,
+            image_width=image_width,
+            image_height=image_height,
+        )

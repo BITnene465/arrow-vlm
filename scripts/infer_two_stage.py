@@ -13,7 +13,7 @@ IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run two-stage arrow inference on one image.")
+    parser = argparse.ArgumentParser(description="Run two-stage arrow inference on one image or a directory.")
     parser.add_argument("--config", default="configs/infer/infer_two_stage.yaml", help="Two-stage inference config path.")
     parser.add_argument("--stage1-checkpoint", required=True)
     parser.add_argument("--stage2-checkpoint", default=None)

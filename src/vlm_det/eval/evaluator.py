@@ -6,6 +6,7 @@ from typing import Any
 import torch
 
 from vlm_det.protocol.codec import ArrowCodec
+from vlm_det.protocol.grounding_codec import GroundingCodec
 from vlm_det.protocol.keypoint_codec import KeypointSequenceCodec
 from vlm_det.utils.distributed import reduce_numeric_dict, reset_model_runtime_state, unwrap_model
 from vlm_det.utils.generation import (
@@ -43,6 +44,7 @@ class ArrowEvaluator:
         self.bbox_iou_threshold = bbox_iou_threshold
         self.strict_point_distance_px = strict_point_distance_px
         self.keypoint_codec = KeypointSequenceCodec(num_bins=codec.num_bins)
+        self.grounding_codec = GroundingCodec(num_bins=codec.num_bins)
 
     def evaluate_model(self, model: torch.nn.Module, dataloader) -> dict[str, float]:
         counts = self._empty_counts()
@@ -58,7 +60,7 @@ class ArrowEvaluator:
                     samples = max(counts["samples"], 1.0)
                     parse_rate_lenient = counts["parse_success_lenient"] / samples
                     parse_rate_strict = counts["parse_success_strict"] / samples
-                    if counts["stage2_samples"] > 0 and counts["stage1_samples"] == 0:
+                    if counts["stage2_samples"] > 0 and counts["structured_samples"] == 0 and counts["grounding_samples"] == 0:
                         e2e = counts["end_to_end_correct"] / max(counts["gt_instances"], 1.0)
                         l2_mean = counts["point_distance_sum"] / max(counts["point_count"], 1.0)
                         progress.set_postfix(
@@ -146,8 +148,20 @@ class ArrowEvaluator:
                 except Exception as exc:  # noqa: BLE001
                     pred_struct = {"keypoints": []}
                     parse_error_lenient = str(exc)
+            elif task_type == "two_stage_stage1_grounding":
+                counts["grounding_samples"] += 1.0
+                try:
+                    pred_struct = self.grounding_codec.decode(
+                        decoded_text,
+                        image_width=image_width,
+                        image_height=image_height,
+                    )
+                    counts["parse_success_lenient"] += 1.0
+                except Exception as exc:  # noqa: BLE001
+                    pred_struct = {"instances": []}
+                    parse_error_lenient = str(exc)
             else:
-                counts["stage1_samples"] += 1.0
+                counts["structured_samples"] += 1.0
                 try:
                     pred_struct = self.codec.decode(decoded_text, image_width=image_width, image_height=image_height)
                     counts["parse_success_lenient"] += 1.0
@@ -158,6 +172,17 @@ class ArrowEvaluator:
                 if task_type == "two_stage_stage2":
                     try:
                         self.keypoint_codec.decode(
+                            strict_text,
+                            image_width=image_width,
+                            image_height=image_height,
+                            strict=True,
+                        )
+                        counts["parse_success_strict"] += 1.0
+                    except Exception as exc:  # noqa: BLE001
+                        parse_error_strict = str(exc)
+                elif task_type == "two_stage_stage1_grounding":
+                    try:
+                        self.grounding_codec.decode(
                             strict_text,
                             image_width=image_width,
                             image_height=image_height,
@@ -181,6 +206,8 @@ class ArrowEvaluator:
                 parse_error_strict = parse_error_lenient
             if task_type == "two_stage_stage2":
                 local_counts = self._score_stage2_prediction(gt_struct, pred_struct)
+            elif task_type == "two_stage_stage1_grounding":
+                local_counts = self._score_grounding_prediction(gt_struct, pred_struct)
             else:
                 local_counts = self._score_prediction(gt_struct, pred_struct)
             for key, value in local_counts.items():
@@ -188,7 +215,7 @@ class ArrowEvaluator:
         return counts
 
     def summarize(self, counts: dict[str, float]) -> dict[str, float]:
-        if counts["stage2_samples"] > 0 and counts["stage1_samples"] == 0:
+        if counts["stage2_samples"] > 0 and counts["structured_samples"] == 0 and counts["grounding_samples"] == 0:
             samples = max(counts["samples"], 1.0)
             point_count = max(counts["point_count"], 1.0)
             gt_instances = max(counts["gt_instances"], 1.0)
@@ -199,6 +226,23 @@ class ArrowEvaluator:
                 "val/keypoint_l2_mean": counts["point_distance_sum"] / point_count,
                 "val/keypoint_count_acc": counts["keypoint_count_exact"] / matched,
                 "val/end_to_end_score": counts["end_to_end_correct"] / gt_instances,
+            }
+        if counts["grounding_samples"] > 0 and counts["structured_samples"] == 0 and counts["stage2_samples"] == 0:
+            samples = max(counts["samples"], 1.0)
+            tp = counts["bbox_tp"]
+            fp = counts["bbox_fp"]
+            fn = counts["bbox_fn"]
+            matched = max(tp, 1.0)
+            precision = tp / max(tp + fp, 1.0)
+            recall = tp / max(tp + fn, 1.0)
+            f1 = 2 * precision * recall / max(precision + recall, 1e-8)
+            return {
+                "val/parse_rate_lenient": counts["parse_success_lenient"] / samples,
+                "val/parse_rate_strict": counts["parse_success_strict"] / samples,
+                "val/bbox_precision_at_iou50": precision,
+                "val/bbox_f1_at_iou50": f1,
+                "val/bbox_recall_at_iou50": recall,
+                "val/bbox_iou_mean": counts["bbox_iou_sum"] / matched,
             }
         samples = max(counts["samples"], 1.0)
         tp = counts["bbox_tp"]
@@ -227,7 +271,8 @@ class ArrowEvaluator:
             "samples": 0.0,
             "parse_success_lenient": 0.0,
             "parse_success_strict": 0.0,
-            "stage1_samples": 0.0,
+            "structured_samples": 0.0,
+            "grounding_samples": 0.0,
             "stage2_samples": 0.0,
             "gt_instances": 0.0,
             "pred_instances": 0.0,
@@ -304,6 +349,26 @@ class ArrowEvaluator:
             all_points_strict = False
         if all_points_strict:
             counts["end_to_end_correct"] = 1.0
+        return counts
+
+    def _score_grounding_prediction(self, gt_struct: dict[str, Any], pred_struct: dict[str, Any]) -> dict[str, float]:
+        counts = self._empty_counts()
+        gt_instances = gt_struct.get("instances", [])
+        pred_instances = pred_struct.get("instances", [])
+        counts["gt_instances"] = float(len(gt_instances))
+        counts["pred_instances"] = float(len(pred_instances))
+
+        matches = self._match_instances(gt_instances, pred_instances)
+        matched_gt = set()
+        matched_pred = set()
+        for gt_index, pred_index, iou_value in matches:
+            matched_gt.add(gt_index)
+            matched_pred.add(pred_index)
+            counts["bbox_tp"] += 1.0
+            counts["bbox_iou_sum"] += iou_value
+
+        counts["bbox_fp"] = float(len(pred_instances) - len(matched_pred))
+        counts["bbox_fn"] = float(len(gt_instances) - len(matched_gt))
         return counts
 
     def _match_instances(
