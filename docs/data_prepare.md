@@ -90,6 +90,7 @@ data/two_stage/reports/prepare_stage1_report.json
 ## Stage2 数据准备
 
 Stage2 数据是单目标 crop 数据集，训练时输出该 crop 中 main arrow 的 `keypoints_2d` 骨架。
+当前 prompt 会显式注入 crop-local 的 `label + bbox_2d`。
 
 命令：
 
@@ -97,7 +98,7 @@ Stage2 数据是单目标 crop 数据集，训练时输出该 crop 中 main arro
 python scripts/prepare_stage2_data.py \
   --input-dir data/processed \
   --output-dir data/two_stage \
-  --padding-ratio 0.2 \
+  --padding-ratio 0.3 \
   --num-workers 8 \
   --stage2-aug-copies 0
 ```
@@ -130,4 +131,4 @@ data/two_stage/reports/prepare_stage2_report.json
 - Stage2 默认不生成 noisy hint 样本；只有显式设置 `--stage2-aug-copies > 0` 才会生成。
 - Stage2 的 `val` 不做 augmentation，只保留 clean 样本。
 - Stage2 的 `target` 坐标已经转换成 crop-local `[0,999]`。
-- 当前 Stage2 prompt 直接要求输出 crop 中 main arrow 的骨架；数据中的 `condition` 仍保留，用于兼容现有数据链路和后续扩展。
+- 当前 Stage2 prompt 会注入 crop-local `label + bbox_2d`，再要求输出该 main arrow 的骨架；数据中的 `condition` 仍保留，用于兼容现有数据链路和后续扩展。

@@ -27,7 +27,9 @@ prompt:
   system_prompt: ""
   user_prompt: ""
   user_prompt_template: |
-    Output only the keypoints_2d skeleton of the main arrow in this crop as a JSON array of points in [0,999].
+    The main arrow in this crop is:
+    {"label":"{{label}}","bbox_2d":{{bbox_2d}}}
+    Output only the keypoints_2d skeleton of this arrow as a JSON array of points in [0,999].
     Format: [[x0,y0],[x1,y1],...]
     For single_arrow, output the skeleton from tail to head.
     For double_arrow, output the skeleton from the upper-left head to the other head.

@@ -1131,7 +1131,7 @@ def prepare_stage2_data(
     *,
     input_dir: str | Path,
     output_dir: str | Path,
-    padding_ratio: float = 0.2,
+    padding_ratio: float = 0.3,
     num_bins: int = 1000,
     num_workers: int | None = None,
     stage2_aug_copies: int = 0,

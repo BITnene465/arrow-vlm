@@ -11,7 +11,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Prepare stage2 crop dataset from processed arrow annotations.")
     parser.add_argument("--input-dir", required=True, help="Directory containing processed train.jsonl and val.jsonl.")
     parser.add_argument("--output-dir", required=True, help="Directory to write stage2 JSONL and crop images.")
-    parser.add_argument("--padding-ratio", type=float, default=0.2, help="Padding ratio around bbox for stage2 crop generation.")
+    parser.add_argument("--padding-ratio", type=float, default=0.3, help="Padding ratio around bbox for stage2 crop generation.")
     parser.add_argument("--num-bins", type=int, default=1000, help="Coordinate quantization bins for prompt/target serialization.")
     parser.add_argument("--num-workers", type=int, default=None, help="Number of worker processes for per-image crop export.")
     parser.add_argument("--stage2-aug-copies", type=int, default=0, help="Additional noisy stage2 copies to generate per train instance.")

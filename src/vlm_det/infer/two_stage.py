@@ -531,13 +531,13 @@ class TwoStageInferenceRunner:
             strict_prediction = result.report["strict"]["prediction"]
             local_prediction = strict_prediction or lenient_prediction
             local_keypoints = local_prediction.get("keypoints", []) if local_prediction else []
-            crop_width, crop_height = request.crop_image.size
             if local_prediction is None:
                 final_instances.append(
                     {
                         "label": request.label,
                         "bbox": [float(value) for value in stage1_instances[request.index]["bbox"]],
                         "keypoints": [],
+                        "stage2_status": "failed",
                     }
                 )
                 stage2_reports.append(result.report)
@@ -553,6 +553,7 @@ class TwoStageInferenceRunner:
                     "label": request.label,
                     "bbox": [float(value) for value in stage1_instances[request.index]["bbox"]],
                     "keypoints": global_keypoints,
+                    "stage2_status": "success",
                 }
             )
             stage2_reports.append(result.report)

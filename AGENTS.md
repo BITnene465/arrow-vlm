@@ -102,16 +102,16 @@ python scripts/prepare_data.py \
 
 - Stage 1：整图输出 `label + bbox`
 - Stage 1 grounding prompt 采用 Qwen3-VL 官方 grounding 风格：短自然语言指令 + 相对坐标 `[0,999]`
-- Stage 2：输入单目标 crop，输出该 crop 中 main arrow 的 `keypoints_2d` 骨架
+- Stage 2：输入单目标 crop，并通过 crop-local `label + bbox_2d` 指定 main arrow，输出其 `keypoints_2d` 骨架
 - 推理阶段的 Stage 1 现在默认采用 mixed proposals：
   - full image
   - 按比例生成的多尺度 tile
   - 之后按 `label + IoU` 做 proposal dedup
 - CLI / demo 都提供 Stage1 mixed proposal 开关，默认开启
 - Stage 2 的 target/prompt 坐标都必须是 crop-local `[0,999]`
-- Stage 2 prompt 采用配置模板渲染；当前 prompt 不再显式注入 `bbox/keypoints` 文本 hint，但数据记录仍保留 `condition` 以兼容现有链路
+- Stage 2 prompt 采用配置模板渲染；当前 prompt 会显式注入 crop-local `label + bbox_2d`，数据记录仍保留 `condition` 以兼容现有链路
 - `demo_two_stage` 可在不提供 Stage 2 checkpoint 的情况下直接做 Stage 1 可视化检查
-- Stage 2 crop 默认 `padding_ratio = 0.2`
+- Stage 2 crop 默认 `padding_ratio = 0.3`
 - crop 超出原图边界时，黑边补齐
 - Stage1 现在支持三条线并行：
   - 原始整图样本

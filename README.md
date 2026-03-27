@@ -191,7 +191,7 @@ Prepare Stage2:
 python scripts/prepare_stage2_data.py \
   --input-dir data/processed \
   --output-dir data/two_stage \
-  --padding-ratio 0.2 \
+  --padding-ratio 0.3 \
   --num-workers 8 \
   --stage2-aug-copies 0
 ```
@@ -228,7 +228,7 @@ Stage 2 uses crop-local coordinates. For every target instance:
 - default padding ratio is `0.2`
 - out-of-bound crop area is padded with black pixels
 - training targets are reprojected into the crop-local `[0,999]` coordinate system
-- stage2 JSONL still stores structured `condition` fields for compatibility, while the current prompt focuses on the main arrow in the crop
+- stage2 JSONL stores structured `condition` fields, and the current prompt explicitly injects crop-local `label + bbox_2d`
 - stage2 does not add noisy hint copies by default; keep `--stage2-aug-copies 0` unless you explicitly want augmentation
 
 More detailed usage is documented in:
@@ -407,7 +407,7 @@ Current two-stage flow:
    - full image
    - ratio-driven multi-scale tiles
 2. Stage 1 proposals are merged with `label + IoU` deduplication.
-3. Stage 2 crops each merged proposal and predicts the main arrow skeleton.
+3. Stage 2 crops each merged proposal and predicts the main arrow skeleton, conditioned on crop-local `label + bbox_2d`.
 4. Omitting `--stage2-checkpoint` keeps the flow in Stage1-only inspection mode.
 
 `infer_two_stage.py` now exposes a Stage1 mixed-proposal toggle:
@@ -415,6 +415,10 @@ Current two-stage flow:
 - default: enabled
 - CLI: `--stage1-mixed-proposals` / `--no-stage1-mixed-proposals`
 - demo: `Enable Stage1 Mixed Proposals`
+- final predictions now include `stage2_status`:
+  - `success`
+  - `failed`
+  Failed Stage2 boxes keep the Stage1 bbox and are rendered with a gray box plus `[S2 fail]`.
 
 ## Two-Stage Demo
 
