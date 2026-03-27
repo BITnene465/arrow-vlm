@@ -10,7 +10,7 @@ from PIL import Image
 from vlm_det.config import ExperimentRuntimeConfig
 from vlm_det.infer.config import InferenceSettings, OneStageInferenceConfig, load_inference_settings
 from vlm_det.modeling.builder import BuildArtifacts, build_model_tokenizer_processor
-from vlm_det.prompting import build_chat_prompt
+from vlm_det.prompting import build_chat_prompt, temporary_padding_side
 from vlm_det.protocol.codec import ArrowCodec
 from vlm_det.utils.checkpoint import load_training_checkpoint
 from vlm_det.utils.distributed import reset_model_runtime_state, unwrap_model
@@ -146,7 +146,8 @@ class ArrowInferenceRunner:
             processor_kwargs["min_pixels"] = self.config.model.min_pixels
         if self.config.model.max_pixels is not None:
             processor_kwargs["max_pixels"] = self.config.model.max_pixels
-        batch = self.artifacts.processor(**processor_kwargs)
+        with temporary_padding_side(self.artifacts.processor, self.artifacts.tokenizer, padding_side="left"):
+            batch = self.artifacts.processor(**processor_kwargs)
         prompt_length = int(batch["attention_mask"].sum(dim=1).item())
         model_inputs = {
             key: value.to(self.device) if hasattr(value, "to") else value

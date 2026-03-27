@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from contextlib import contextmanager
 from typing import Any
 
 TEMPLATE_PATTERN = re.compile(r"{{\s*([a-zA-Z0-9_]+)\s*}}")
@@ -50,3 +51,24 @@ def build_chat_prompt(
         tokenize=False,
         add_generation_prompt=True,
     )
+
+
+@contextmanager
+def temporary_padding_side(processor, tokenizer, *, padding_side: str):
+    tokenizer_objects: list[Any] = []
+    if tokenizer is not None:
+        tokenizer_objects.append(tokenizer)
+    processor_tokenizer = getattr(processor, "tokenizer", None)
+    if processor_tokenizer is not None and processor_tokenizer is not tokenizer:
+        tokenizer_objects.append(processor_tokenizer)
+
+    previous: list[tuple[Any, Any]] = []
+    try:
+        for current in tokenizer_objects:
+            previous.append((current, getattr(current, "padding_side", None)))
+            current.padding_side = padding_side
+        yield
+    finally:
+        for current, old_value in previous:
+            if old_value is not None:
+                current.padding_side = old_value
