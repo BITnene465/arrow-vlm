@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import os
 import random
+import shutil
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from hashlib import sha256
@@ -94,6 +95,18 @@ def _is_bbox_fully_inside_crop(bbox: list[float], crop_box: list[int]) -> bool:
 def _crop_image_region(image: Image.Image, crop_box: list[int]) -> Image.Image:
     crop_x1, crop_y1, crop_x2, crop_y2 = crop_box
     return image.crop((crop_x1, crop_y1, crop_x2, crop_y2))
+
+
+def _save_image_atomic(image: Image.Image, output_path: Path) -> None:
+    ensure_dir(output_path.parent)
+    temp_path = output_path.with_name(f".{output_path.stem}.tmp-{os.getpid()}{output_path.suffix}")
+    try:
+        image.save(temp_path)
+        with Image.open(temp_path) as verify_image:
+            verify_image.verify()
+        os.replace(temp_path, output_path)
+    finally:
+        temp_path.unlink(missing_ok=True)
 
 
 def _sliding_window_starts(length: int, tile_size: int, stride: int) -> list[int]:
@@ -207,7 +220,7 @@ def _write_stage1_crop_image(
     crop_dir = ensure_dir(output_dir / "stage1" / "images" / split)
     crop_path = crop_dir / f"{sample_id}.png"
     crop_image = _crop_image_region(image, crop_box)
-    crop_image.save(crop_path)
+    _save_image_atomic(crop_image, crop_path)
     crop_width, crop_height = crop_image.size
     crop_image.close()
     return crop_path, int(crop_width), int(crop_height)
@@ -569,7 +582,8 @@ def _build_stage2_record(
     crop_dir = ensure_dir(output_dir / "stage2" / "images" / split)
     crop_name = f"{record['sample_id']}__inst_{target_index:04d}{sample_suffix}.png"
     crop_path = crop_dir / crop_name
-    crop_image.save(crop_path)
+    _save_image_atomic(crop_image, crop_path)
+    crop_image.close()
 
     local_gt_bbox = to_crop_local_bbox(instance["bbox"], crop_box)
     local_gt_keypoints = to_crop_local_keypoints(instance["keypoints"], crop_box)
@@ -1053,6 +1067,7 @@ def prepare_stage1_data(
     output_dir = Path(output_dir)
     resolved_workers = max(int(num_workers or os.cpu_count() or 1), 1)
     resolved_tile_size_ratios = _parse_float_sequence(stage1_tile_size_ratios, default=[0.35, 0.5])
+    shutil.rmtree(output_dir / "stage1" / "images", ignore_errors=True)
     train_records = load_jsonl(input_dir / "train.jsonl")
     val_records = load_jsonl(input_dir / "val.jsonl")
     stats: Counter = Counter()
@@ -1128,6 +1143,7 @@ def prepare_stage2_data(
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
     resolved_workers = max(int(num_workers or os.cpu_count() or 1), 1)
+    shutil.rmtree(output_dir / "stage2" / "images", ignore_errors=True)
     train_records = load_jsonl(input_dir / "train.jsonl")
     val_records = load_jsonl(input_dir / "val.jsonl")
     stats: Counter = Counter()
