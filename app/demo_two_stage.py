@@ -25,6 +25,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stage1-max-new-tokens", type=int, default=None)
     parser.add_argument("--stage2-max-new-tokens", type=int, default=None)
     parser.add_argument("--stage2-batch-size", type=int, default=None)
+    parser.add_argument(
+        "--stage1-mixed-proposals",
+        dest="stage1_mixed_proposals",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
     return parser.parse_args()
 
 
@@ -138,10 +144,12 @@ def build_demo(args: argparse.Namespace):
         stage1_prediction = report["stage1_report"]["strict"]["prediction"] or report["stage1_report"]["lenient"]["prediction"]
         stage1_count = len(stage1_prediction.get("instances", [])) if stage1_prediction else 0
         stage1_recovered = bool(report["stage1_report"]["lenient"].get("recovered_prefix", False))
+        stage1_mixed = bool(report["stage1_report"]["generation"].get("mixed_proposals_enabled", False))
         stage2_loaded = runner_holder["stage2_checkpoint"].strip() != ""
         stage2_refined = len(report.get("stage2_results", []))
         return (
             f"{'当前运行两阶段推理。' if stage2_loaded else '当前仅运行 Stage1 grounding。'}"
+            f" Stage1 mixed proposals: {stage1_mixed}."
             f" Stage1 detected {stage1_count} arrows."
             f" Final output contains {len(instances)} arrows."
             f" Stage2 refined: {stage2_refined}."
@@ -157,6 +165,7 @@ def build_demo(args: argparse.Namespace):
         stage1_max_new_tokens: int,
         stage2_max_new_tokens: int,
         stage2_batch_size: int,
+        stage1_mixed_proposals: bool,
     ):
         if image is None:
             raise gr.Error("Please upload an image.")
@@ -172,6 +181,7 @@ def build_demo(args: argparse.Namespace):
             stage1_max_new_tokens=stage1_max_new_tokens,
             stage2_max_new_tokens=stage2_max_new_tokens,
             stage2_batch_size=stage2_batch_size,
+            stage1_use_mixed_proposals=stage1_mixed_proposals,
         )
         stage1_prediction = report["stage1_report"]["strict"]["prediction"] or report["stage1_report"]["lenient"]["prediction"]
         final_prediction = report["final_prediction"]
@@ -191,6 +201,11 @@ def build_demo(args: argparse.Namespace):
     stage1_default_max_new_tokens = args.stage1_max_new_tokens or infer_config.stage1.eval.max_new_tokens or 2048
     stage2_default_max_new_tokens = args.stage2_max_new_tokens or infer_config.stage2.eval.max_new_tokens or 256
     stage2_default_batch_size = args.stage2_batch_size or infer_config.stage2.batch_size or 1
+    stage1_default_mixed_proposals = (
+        bool(infer_config.stage1.tile_size_ratios)
+        if args.stage1_mixed_proposals is None
+        else bool(args.stage1_mixed_proposals)
+    )
 
     with gr.Blocks(title="ArrowVLM Two-Stage Demo") as demo:
         gr.Markdown("## ArrowVLM Two-Stage Demo\n可单独检查 Stage1 grounding，也可加载 Stage2 做两阶段推理。")
@@ -234,6 +249,10 @@ def build_demo(args: argparse.Namespace):
                     value=stage2_default_batch_size,
                     precision=0,
                     label="Stage2 Batch Size",
+                )
+                stage1_mixed_proposals = gr.Checkbox(
+                    value=stage1_default_mixed_proposals,
+                    label="Enable Stage1 Mixed Proposals",
                 )
                 image_input = gr.Image(type="pil", label="Input Image")
                 run_button = gr.Button("Run Two-Stage Inference", variant="primary")
@@ -292,6 +311,7 @@ def build_demo(args: argparse.Namespace):
                 stage1_max_new_tokens,
                 stage2_max_new_tokens,
                 stage2_batch_size,
+                stage1_mixed_proposals,
             ],
             outputs=[
                 input_gallery,

@@ -410,6 +410,12 @@ Current two-stage flow:
 3. Stage 2 crops each merged proposal and predicts the main arrow skeleton.
 4. Omitting `--stage2-checkpoint` keeps the flow in Stage1-only inspection mode.
 
+`infer_two_stage.py` now exposes a Stage1 mixed-proposal toggle:
+
+- default: enabled
+- CLI: `--stage1-mixed-proposals` / `--no-stage1-mixed-proposals`
+- demo: `Enable Stage1 Mixed Proposals`
+
 ## Two-Stage Demo
 
 Launch the two-stage Gradio app with:

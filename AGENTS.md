@@ -107,6 +107,7 @@ python scripts/prepare_data.py \
   - full image
   - 按比例生成的多尺度 tile
   - 之后按 `label + IoU` 做 proposal dedup
+- CLI / demo 都提供 Stage1 mixed proposal 开关，默认开启
 - Stage 2 的 target/prompt 坐标都必须是 crop-local `[0,999]`
 - Stage 2 prompt 采用配置模板渲染；当前 prompt 不再显式注入 `bbox/keypoints` 文本 hint，但数据记录仍保留 `condition` 以兼容现有链路
 - `demo_two_stage` 可在不提供 Stage 2 checkpoint 的情况下直接做 Stage 1 可视化检查

@@ -35,3 +35,4 @@ python app/demo_two_stage.py \
 
 - Stage1-only grounding 可视化检查
 - 完整 two-stage 推理可视化
+- Stage1 mixed proposal 开关

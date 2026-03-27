@@ -27,6 +27,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stage1-max-new-tokens", type=int, default=None)
     parser.add_argument("--stage2-max-new-tokens", type=int, default=None)
     parser.add_argument("--stage2-batch-size", type=int, default=None)
+    parser.add_argument(
+        "--stage1-mixed-proposals",
+        dest="stage1_mixed_proposals",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable Stage1 full-image + tile mixed proposal aggregation.",
+    )
     parser.add_argument("--output-dir", default=None)
     return parser.parse_args()
 
@@ -85,6 +92,7 @@ def _run_one(
     stage1_max_new_tokens: int | None,
     stage2_max_new_tokens: int | None,
     stage2_batch_size: int | None,
+    stage1_mixed_proposals: bool | None,
 ) -> tuple[Image.Image, dict[str, object]]:
     image = Image.open(image_path).convert("RGB")
     report = runner.predict(
@@ -92,6 +100,7 @@ def _run_one(
         stage1_max_new_tokens=stage1_max_new_tokens,
         stage2_max_new_tokens=stage2_max_new_tokens,
         stage2_batch_size=stage2_batch_size,
+        stage1_use_mixed_proposals=stage1_mixed_proposals,
     )
     return image, report
 
@@ -119,6 +128,7 @@ def main() -> None:
             stage1_max_new_tokens=args.stage1_max_new_tokens,
             stage2_max_new_tokens=args.stage2_max_new_tokens,
             stage2_batch_size=args.stage2_batch_size,
+            stage1_mixed_proposals=args.stage1_mixed_proposals,
         )
         print(json.dumps(report, ensure_ascii=False, indent=2))
         final_prediction = report["final_prediction"]
@@ -154,6 +164,7 @@ def main() -> None:
             stage1_max_new_tokens=args.stage1_max_new_tokens,
             stage2_max_new_tokens=args.stage2_max_new_tokens,
             stage2_batch_size=args.stage2_batch_size,
+            stage1_mixed_proposals=args.stage1_mixed_proposals,
         )
         relative_key = _relative_key(image_path, image_dir)
         report_path, stage1_overlay_path, final_overlay_path = _save_outputs(

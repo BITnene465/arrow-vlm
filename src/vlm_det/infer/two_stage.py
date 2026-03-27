@@ -359,6 +359,19 @@ class TwoStageInferenceRunner:
         return deduped
 
     def _predict_stage1(self, image: Image.Image, *, max_new_tokens: int | None = None) -> tuple[str, dict[str, Any], dict[str, Any]]:
+        return self._predict_stage1_with_options(
+            image,
+            max_new_tokens=max_new_tokens,
+            use_mixed_proposals=None,
+        )
+
+    def _predict_stage1_with_options(
+        self,
+        image: Image.Image,
+        *,
+        max_new_tokens: int | None = None,
+        use_mixed_proposals: bool | None = None,
+    ) -> tuple[str, dict[str, Any], dict[str, Any]]:
         infer_cfg = getattr(self, "infer_config", None)
         if infer_cfg is None:
             raw_text, report = self.stage1_runner.predict(image, max_new_tokens=max_new_tokens)
@@ -367,6 +380,11 @@ class TwoStageInferenceRunner:
 
         branch_predictions: list[dict[str, Any]] = []
         raw_texts: list[str] = []
+        enable_mixed_proposals = (
+            bool(infer_cfg.stage1.tile_size_ratios)
+            if use_mixed_proposals is None
+            else bool(use_mixed_proposals)
+        )
 
         if bool(infer_cfg.stage1.include_full_image):
             full_raw_text, full_report = self.stage1_runner.predict(image, max_new_tokens=max_new_tokens)
@@ -382,19 +400,20 @@ class TwoStageInferenceRunner:
                 }
             )
 
-        for tile_index, crop_box in enumerate(self._build_stage1_tile_boxes(image)):
-            tile_image = image.crop(tuple(crop_box))
-            tile_raw_text, tile_report = self.stage1_runner.predict(tile_image, max_new_tokens=max_new_tokens)
-            raw_texts.append(tile_raw_text)
-            branch_predictions.append(
-                {
-                    "source_type": f"tile_{tile_index:04d}",
-                    "crop_box": [int(value) for value in crop_box],
-                    "raw_text": tile_raw_text,
-                    "report": tile_report,
-                    "prediction": self._extract_stage1_prediction(tile_report),
-                }
-            )
+        if enable_mixed_proposals:
+            for tile_index, crop_box in enumerate(self._build_stage1_tile_boxes(image)):
+                tile_image = image.crop(tuple(crop_box))
+                tile_raw_text, tile_report = self.stage1_runner.predict(tile_image, max_new_tokens=max_new_tokens)
+                raw_texts.append(tile_raw_text)
+                branch_predictions.append(
+                    {
+                        "source_type": f"tile_{tile_index:04d}",
+                        "crop_box": [int(value) for value in crop_box],
+                        "raw_text": tile_raw_text,
+                        "report": tile_report,
+                        "prediction": self._extract_stage1_prediction(tile_report),
+                    }
+                )
 
         aggregated_instances = self._aggregate_stage1_instances(branch_predictions)
         aggregated_prediction = {"instances": aggregated_instances}
@@ -403,6 +422,7 @@ class TwoStageInferenceRunner:
                 "num_branches": len(branch_predictions),
                 "num_full_image_branches": sum(1 for branch in branch_predictions if branch["crop_box"] is None),
                 "num_tile_branches": sum(1 for branch in branch_predictions if branch["crop_box"] is not None),
+                "mixed_proposals_enabled": enable_mixed_proposals,
             },
             "lenient": {
                 "ok": True,
@@ -437,11 +457,13 @@ class TwoStageInferenceRunner:
         stage1_max_new_tokens: int | None = None,
         stage2_max_new_tokens: int | None = None,
         stage2_batch_size: int | None = None,
+        stage1_use_mixed_proposals: bool | None = None,
     ) -> dict[str, Any]:
         pil_image = image.convert("RGB")
-        stage1_raw_text, stage1_report, stage1_prediction = self._predict_stage1(
+        stage1_raw_text, stage1_report, stage1_prediction = self._predict_stage1_with_options(
             pil_image,
             max_new_tokens=stage1_max_new_tokens,
+            use_mixed_proposals=stage1_use_mixed_proposals,
         )
         if stage1_prediction is None:
             return {
