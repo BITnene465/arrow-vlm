@@ -7,7 +7,7 @@ stage1:
   proposal_dedup_iou_threshold: 0.65
   model:
     min_pixels: 200704
-    max_pixels: 1048576
+    max_pixels: 786432
   prompt:
     system_prompt: ""
     user_prompt: |
