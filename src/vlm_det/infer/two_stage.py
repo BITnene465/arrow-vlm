@@ -66,12 +66,12 @@ class Stage2KeypointInferenceRunner:
             batch_requests = sorted_requests[start : start + effective_batch_size]
             prompt_texts = [self._build_prompt(request) for request in batch_requests]
             images = [request.crop_image.convert("RGB") for request in batch_requests]
-            model_inputs, prompt_lengths = self._prepare_inputs(images, prompt_texts=prompt_texts)
+            model_inputs, input_context_length = self._prepare_inputs(images, prompt_texts=prompt_texts)
             generate_kwargs = build_generate_kwargs(
                 self.artifacts.tokenizer,
                 generation_config=getattr(raw_model, "generation_config", None),
                 num_bins=self.codec.num_bins,
-                prompt_lengths=prompt_lengths,
+                prompt_lengths=[input_context_length] * len(batch_requests),
                 max_new_tokens=max_new_tokens or self.config.eval.max_new_tokens,
                 num_beams=self.config.eval.num_beams,
                 do_sample=self.config.eval.do_sample,
@@ -82,14 +82,13 @@ class Stage2KeypointInferenceRunner:
             )
             generate_kwargs["stopping_criteria"] = build_json_array_stopping_criteria(
                 self.artifacts.tokenizer,
-                prompt_lengths=prompt_lengths,
+                prompt_lengths=[input_context_length] * len(batch_requests),
             )
             requested_max_new_tokens = int(generate_kwargs["max_new_tokens"])
             with torch.inference_mode():
                 reset_model_runtime_state(raw_model)
                 output_ids = raw_model.generate(**model_inputs, **generate_kwargs)
             for row_index, request in enumerate(batch_requests):
-                input_context_length = int(prompt_lengths[row_index])
                 width, height = request.crop_image.size
                 continuation = output_ids[row_index, input_context_length:]
                 continuation_ids = continuation.tolist()
@@ -131,6 +130,7 @@ class Stage2KeypointInferenceRunner:
                     crop_box=[int(value) for value in request.crop_box],
                     raw_text=decoded,
                     report={
+                        "raw_text": decoded,
                         "generation": {
                             "requested_max_new_tokens": requested_max_new_tokens,
                             "generated_tokens": len(continuation_ids),
@@ -187,7 +187,7 @@ class Stage2KeypointInferenceRunner:
         images: list[Image.Image],
         *,
         prompt_texts: list[str],
-    ) -> tuple[dict[str, torch.Tensor], list[int]]:
+    ) -> tuple[dict[str, torch.Tensor], int]:
         processor_kwargs: dict[str, Any] = {
             "text": prompt_texts,
             "images": images,
@@ -200,12 +200,12 @@ class Stage2KeypointInferenceRunner:
             processor_kwargs["max_pixels"] = self.config.model.max_pixels
         with temporary_padding_side(self.artifacts.processor, self.artifacts.tokenizer, padding_side="left"):
             batch = self.artifacts.processor(**processor_kwargs)
-        prompt_lengths = [int(value) for value in batch["attention_mask"].sum(dim=1).tolist()]
+        input_context_length = int(batch["input_ids"].shape[1])
         model_inputs = {
             key: value.to(self.device) if hasattr(value, "to") else value
             for key, value in batch.items()
         }
-        return model_inputs, prompt_lengths
+        return model_inputs, input_context_length
 
 
 @dataclass

@@ -69,8 +69,8 @@ lora:
   proj_target_modules: []
 
 train:
-  epochs: 2
-  per_device_batch_size: 8
+  epochs: 5
+  per_device_batch_size: 24
   grad_accum_steps: 1
   gradient_checkpointing: true
   learning_rate: 0.0001

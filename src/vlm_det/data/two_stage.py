@@ -14,7 +14,6 @@ from PIL import Image
 
 from vlm_det.data.ordering import (
     grounding_instance_sort_key,
-    normalize_keypoints_for_label,
     sort_grounding_instances_canonical,
     sort_instances_canonical,
 )
@@ -434,32 +433,6 @@ def _jitter_bbox(
     }
 
 
-def _jitter_hint_keypoints(
-    *,
-    label: str,
-    keypoints: list[list[float]],
-    bbox: list[float],
-    image_width: int,
-    image_height: int,
-    endpoint_ratio: float,
-    rng: random.Random,
-) -> tuple[list[list[float]], dict[str, Any]]:
-    diagonal = math.dist((float(bbox[0]), float(bbox[1])), (float(bbox[2]), float(bbox[3])))
-    radius = max(diagonal * endpoint_ratio, 1.0)
-    noisy_points: list[list[float]] = []
-    offsets: list[list[float]] = []
-    for point in keypoints:
-        dx = rng.uniform(-radius, radius)
-        dy = rng.uniform(-radius, radius)
-        noisy_point = _clip_point([float(point[0]) + dx, float(point[1]) + dy], image_width, image_height)
-        noisy_points.append(noisy_point)
-        offsets.append([round(noisy_point[0] - float(point[0]), 4), round(noisy_point[1] - float(point[1]), 4)])
-    normalized_points = normalize_keypoints_for_label(label, noisy_points)
-    return normalized_points, {
-        "endpoint_offsets_px": offsets,
-    }
-
-
 def build_padded_crop(
     image: Image.Image,
     *,
@@ -816,10 +789,9 @@ def _prepare_stage2_record_set(
     output_dir: str,
     padding_ratio: float,
     num_bins: int,
-    stage2_aug_copies: int,
+    stage2_aug_ratio: float,
     bbox_center_jitter_ratio: float,
     bbox_scale_jitter_ratio: float,
-    endpoint_jitter_ratio: float,
     augmentation_seed: int,
 ) -> list[dict[str, Any]]:
     image_path = Path(record["image_path"])
@@ -847,65 +819,57 @@ def _prepare_stage2_record_set(
                     "bbox_center_dy_px": 0.0,
                     "bbox_scale_dw_px": 0.0,
                     "bbox_scale_dh_px": 0.0,
-                    "endpoint_offsets_px": [[0.0, 0.0], [0.0, 0.0]],
                 },
             )
         )
-        for aug_index in range(1, int(stage2_aug_copies) + 1):
-            rng = _stable_rng(
-                sample_id=record["sample_id"],
-                target_index=target_index,
-                aug_index=aug_index,
-                seed=augmentation_seed,
+        if float(stage2_aug_ratio) <= 0.0:
+            continue
+        rng = _stable_rng(
+            sample_id=record["sample_id"],
+            target_index=target_index,
+            aug_index=1,
+            seed=augmentation_seed,
+        )
+        if rng.random() >= float(stage2_aug_ratio):
+            continue
+        noisy_record = None
+        for _attempt in range(8):
+            noisy_bbox, bbox_meta = _jitter_bbox(
+                instance["bbox"],
+                image_width=int(record["image_width"]),
+                image_height=int(record["image_height"]),
+                center_ratio=bbox_center_jitter_ratio,
+                scale_ratio=bbox_scale_jitter_ratio,
+                rng=rng,
             )
-            noisy_record = None
-            for _attempt in range(8):
-                noisy_bbox, bbox_meta = _jitter_bbox(
-                    instance["bbox"],
-                    image_width=int(record["image_width"]),
-                    image_height=int(record["image_height"]),
-                    center_ratio=bbox_center_jitter_ratio,
-                    scale_ratio=bbox_scale_jitter_ratio,
-                    rng=rng,
-                )
-                noisy_hint_keypoints, point_meta = _jitter_hint_keypoints(
-                    label=instance["label"],
-                    keypoints=[instance["keypoints"][0], instance["keypoints"][-1]],
-                    bbox=instance["bbox"],
-                    image_width=int(record["image_width"]),
-                    image_height=int(record["image_height"]),
-                    endpoint_ratio=endpoint_jitter_ratio,
-                    rng=rng,
-                )
-                preview_crop_box = build_padded_crop(
-                    image,
-                    bbox=noisy_bbox,
-                    padding_ratio=padding_ratio,
-                )[1]
-                if not _all_points_inside_crop(instance["keypoints"], preview_crop_box):
-                    continue
-                noisy_record = _build_stage2_record(
-                    record,
-                    instance,
-                    image=image,
-                    split=split,
-                    target_index=target_index,
-                    sample_suffix=f"__aug_{aug_index:02d}",
-                    hint_bbox=noisy_bbox,
-                    hint_keypoints=noisy_hint_keypoints,
-                    output_dir=output_dir_path,
-                    padding_ratio=padding_ratio,
-                    num_bins=num_bins,
-                    augmentation={
-                        "copy_type": "noisy",
-                        "copy_index": int(aug_index),
-                        **bbox_meta,
-                        **point_meta,
-                    },
-                )
-                break
-            if noisy_record is not None:
-                current_stage2.append(noisy_record)
+            preview_crop_box = build_padded_crop(
+                image,
+                bbox=noisy_bbox,
+                padding_ratio=padding_ratio,
+            )[1]
+            if not _all_points_inside_crop(instance["keypoints"], preview_crop_box):
+                continue
+            noisy_record = _build_stage2_record(
+                record,
+                instance,
+                image=image,
+                split=split,
+                target_index=target_index,
+                sample_suffix="__aug_01",
+                hint_bbox=noisy_bbox,
+                hint_keypoints=[instance["keypoints"][0], instance["keypoints"][-1]],
+                output_dir=output_dir_path,
+                padding_ratio=padding_ratio,
+                num_bins=num_bins,
+                augmentation={
+                    "copy_type": "noisy",
+                    "copy_index": 1,
+                    **bbox_meta,
+                },
+            )
+            break
+        if noisy_record is not None:
+            current_stage2.append(noisy_record)
     image.close()
     return current_stage2
 
@@ -997,10 +961,9 @@ def _prepare_stage2_split(
     padding_ratio: float,
     num_bins: int,
     num_workers: int,
-    stage2_aug_copies: int,
+    stage2_aug_ratio: float,
     bbox_center_jitter_ratio: float,
     bbox_scale_jitter_ratio: float,
-    endpoint_jitter_ratio: float,
     augmentation_seed: int,
     stats: Counter,
 ) -> list[dict[str, Any]]:
@@ -1013,10 +976,9 @@ def _prepare_stage2_split(
                 output_dir=str(output_dir),
                 padding_ratio=padding_ratio,
                 num_bins=num_bins,
-                stage2_aug_copies=stage2_aug_copies,
+                stage2_aug_ratio=stage2_aug_ratio,
                 bbox_center_jitter_ratio=bbox_center_jitter_ratio,
                 bbox_scale_jitter_ratio=bbox_scale_jitter_ratio,
-                endpoint_jitter_ratio=endpoint_jitter_ratio,
                 augmentation_seed=augmentation_seed,
             )
             stage2_records.extend(current_stage2)
@@ -1033,10 +995,9 @@ def _prepare_stage2_split(
                 output_dir=str(output_dir),
                 padding_ratio=padding_ratio,
                 num_bins=num_bins,
-                stage2_aug_copies=stage2_aug_copies,
+                stage2_aug_ratio=stage2_aug_ratio,
                 bbox_center_jitter_ratio=bbox_center_jitter_ratio,
                 bbox_scale_jitter_ratio=bbox_scale_jitter_ratio,
-                endpoint_jitter_ratio=endpoint_jitter_ratio,
                 augmentation_seed=augmentation_seed,
             )
             for record in records
@@ -1134,10 +1095,9 @@ def prepare_stage2_data(
     padding_ratio: float = 0.3,
     num_bins: int = 1000,
     num_workers: int | None = None,
-    stage2_aug_copies: int = 0,
-    bbox_center_jitter_ratio: float = 0.05,
-    bbox_scale_jitter_ratio: float = 0.08,
-    endpoint_jitter_ratio: float = 0.03,
+    stage2_aug_ratio: float = 0.0,
+    bbox_center_jitter_ratio: float = 0.03,
+    bbox_scale_jitter_ratio: float = 0.05,
     augmentation_seed: int = 42,
 ) -> dict[str, Any]:
     input_dir = Path(input_dir)
@@ -1155,10 +1115,9 @@ def prepare_stage2_data(
         padding_ratio=padding_ratio,
         num_bins=num_bins,
         num_workers=resolved_workers,
-        stage2_aug_copies=stage2_aug_copies,
+        stage2_aug_ratio=stage2_aug_ratio,
         bbox_center_jitter_ratio=bbox_center_jitter_ratio,
         bbox_scale_jitter_ratio=bbox_scale_jitter_ratio,
-        endpoint_jitter_ratio=endpoint_jitter_ratio,
         augmentation_seed=augmentation_seed,
         stats=stats,
     )
@@ -1169,10 +1128,9 @@ def prepare_stage2_data(
         padding_ratio=padding_ratio,
         num_bins=num_bins,
         num_workers=resolved_workers,
-        stage2_aug_copies=0,
+        stage2_aug_ratio=0.0,
         bbox_center_jitter_ratio=bbox_center_jitter_ratio,
         bbox_scale_jitter_ratio=bbox_scale_jitter_ratio,
-        endpoint_jitter_ratio=endpoint_jitter_ratio,
         augmentation_seed=augmentation_seed,
         stats=stats,
     )
@@ -1184,11 +1142,10 @@ def prepare_stage2_data(
         "padding_ratio": float(padding_ratio),
         "num_bins": int(num_bins),
         "num_workers": int(resolved_workers),
-        "stage2_train_aug_copies": int(stage2_aug_copies),
-        "stage2_val_aug_copies": 0,
+        "stage2_train_aug_ratio": float(stage2_aug_ratio),
+        "stage2_val_aug_ratio": 0.0,
         "bbox_center_jitter_ratio": float(bbox_center_jitter_ratio),
         "bbox_scale_jitter_ratio": float(bbox_scale_jitter_ratio),
-        "endpoint_jitter_ratio": float(endpoint_jitter_ratio),
         "augmentation_seed": int(augmentation_seed),
         "stage2_train_samples": len(stage2_train),
         "stage2_val_samples": len(stage2_val),
@@ -1205,10 +1162,9 @@ def prepare_two_stage_data(
     padding_ratio: float = 0.2,
     num_bins: int = 1000,
     num_workers: int | None = None,
-    stage2_aug_copies: int = 0,
-    bbox_center_jitter_ratio: float = 0.05,
-    bbox_scale_jitter_ratio: float = 0.08,
-    endpoint_jitter_ratio: float = 0.03,
+    stage2_aug_ratio: float = 0.0,
+    bbox_center_jitter_ratio: float = 0.03,
+    bbox_scale_jitter_ratio: float = 0.05,
     augmentation_seed: int = 42,
     stage1_include_full_image: bool = True,
     stage1_tile_size_ratios: list[float] | tuple[float, ...] | None = None,
@@ -1238,10 +1194,9 @@ def prepare_two_stage_data(
         padding_ratio=padding_ratio,
         num_bins=num_bins,
         num_workers=num_workers,
-        stage2_aug_copies=stage2_aug_copies,
+        stage2_aug_ratio=stage2_aug_ratio,
         bbox_center_jitter_ratio=bbox_center_jitter_ratio,
         bbox_scale_jitter_ratio=bbox_scale_jitter_ratio,
-        endpoint_jitter_ratio=endpoint_jitter_ratio,
         augmentation_seed=augmentation_seed,
     )
     report = {

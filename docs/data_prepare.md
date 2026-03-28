@@ -100,21 +100,19 @@ python scripts/prepare_stage2_data.py \
   --output-dir data/two_stage \
   --padding-ratio 0.3 \
   --num-workers 8 \
-  --stage2-aug-copies 0
+  --stage2-aug-ratio 0.0
 ```
 
 关键参数：
 
 - `--padding-ratio`
   目标 bbox 的 crop padding 比例。
-- `--stage2-aug-copies`
-  每个训练实例额外生成多少条 noisy hint 副本。
+- `--stage2-aug-ratio`
+  训练实例中有多少比例额外生成 1 条 noisy hint 副本。比如 `0.3` 表示约 30% 的训练实例会多 1 条 noisy 样本。
 - `--bbox-center-jitter-ratio`
-  在原图坐标系下，对 hint bbox 中心的相对扰动范围，默认 `0.05`。
+  在原图坐标系下，对 hint bbox 中心的相对扰动范围，默认 `0.03`。
 - `--bbox-scale-jitter-ratio`
-  在原图坐标系下，对 hint bbox 宽高的相对扰动范围，默认 `0.08`。
-- `--endpoint-jitter-ratio`
-  在原图坐标系下，对两个 hint 点的相对扰动范围，默认 `0.03`。
+  在原图坐标系下，对 hint bbox 宽高的相对扰动范围，默认 `0.05`。
 
 产物：
 
@@ -128,7 +126,8 @@ data/two_stage/reports/prepare_stage2_report.json
 
 说明：
 
-- Stage2 默认不生成 noisy hint 样本；只有显式设置 `--stage2-aug-copies > 0` 才会生成。
+- Stage2 默认不生成 noisy hint 样本；只有显式设置 `--stage2-aug-ratio > 0` 才会生成。
+- Stage2 的 noisy augmentation 只扰动 bbox crop 条件，不再扰动 endpoint。
 - Stage2 的 `val` 不做 augmentation，只保留 clean 样本。
 - Stage2 的 `target` 坐标已经转换成 crop-local `[0,999]`。
 - 当前 Stage2 prompt 会注入 crop-local `label + bbox_2d`，再要求输出该 main arrow 的骨架；数据中的 `condition` 仍保留，用于兼容现有数据链路和后续扩展。

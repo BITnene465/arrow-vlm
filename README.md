@@ -193,7 +193,7 @@ python scripts/prepare_stage2_data.py \
   --output-dir data/two_stage \
   --padding-ratio 0.3 \
   --num-workers 8 \
-  --stage2-aug-copies 0
+  --stage2-aug-ratio 0.0
 ```
 
 This writes:
@@ -229,7 +229,11 @@ Stage 2 uses crop-local coordinates. For every target instance:
 - out-of-bound crop area is padded with black pixels
 - training targets are reprojected into the crop-local `[0,999]` coordinate system
 - stage2 JSONL stores structured `condition` fields, and the current prompt explicitly injects crop-local `label + bbox_2d`
-- stage2 does not add noisy hint copies by default; keep `--stage2-aug-copies 0` unless you explicitly want augmentation
+- stage2 does not add noisy hint samples by default; set `--stage2-aug-ratio 0.3` if you want about 30% of train instances to receive one extra noisy sample
+- stage2 noisy augmentation only jitters the bbox crop condition; there is no endpoint jitter in the current formulation
+- current stage2 jitter defaults are conservative:
+  - `bbox_center_jitter_ratio = 0.03`
+  - `bbox_scale_jitter_ratio = 0.05`
 
 More detailed usage is documented in:
 
