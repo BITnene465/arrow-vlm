@@ -11,7 +11,6 @@ from vlm_det.protocol.keypoint_codec import KeypointSequenceCodec
 from vlm_det.utils.distributed import reduce_numeric_dict, reset_model_runtime_state, unwrap_model
 from vlm_det.utils.generation import (
     build_generate_kwargs,
-    build_json_array_stopping_criteria,
     trim_generated_ids_at_eos,
 )
 from vlm_det.utils.logging import create_progress_bar
@@ -112,10 +111,6 @@ class ArrowEvaluator:
             )
         )
         input_context_length = int(generate_inputs["input_ids"].shape[1])
-        generate_inputs["stopping_criteria"] = build_json_array_stopping_criteria(
-            self.tokenizer,
-            prompt_lengths=[input_context_length] * int(generate_inputs["input_ids"].shape[0]),
-        )
         if batch.get("image_grid_thw") is not None:
             generate_inputs["image_grid_thw"] = batch["image_grid_thw"].to(next(model.parameters()).device)
         reset_model_runtime_state(model)

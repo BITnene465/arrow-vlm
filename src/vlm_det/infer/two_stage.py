@@ -27,7 +27,6 @@ from vlm_det.utils.checkpoint import load_training_checkpoint
 from vlm_det.utils.distributed import reset_model_runtime_state, unwrap_model
 from vlm_det.utils.generation import (
     build_generate_kwargs,
-    build_json_array_stopping_criteria,
     find_balanced_json_array_end,
     trim_generated_ids_at_eos,
 )
@@ -80,10 +79,6 @@ class Stage2KeypointInferenceRunner:
                 top_k=self.config.eval.top_k,
                 use_cache=self.config.eval.use_cache,
             )
-            generate_kwargs["stopping_criteria"] = build_json_array_stopping_criteria(
-                self.artifacts.tokenizer,
-                prompt_lengths=[input_context_length] * len(batch_requests),
-            )
             requested_max_new_tokens = int(generate_kwargs["max_new_tokens"])
             with torch.inference_mode():
                 reset_model_runtime_state(raw_model)
@@ -99,9 +94,6 @@ class Stage2KeypointInferenceRunner:
                 strict_text = self.artifacts.tokenizer.decode(trimmed_ids, skip_special_tokens=True)
                 closed_json_array = json_array_end is not None
                 hit_max_new_tokens = len(continuation_ids) >= requested_max_new_tokens
-                if closed_json_array:
-                    decoded = raw_continuation_text[:json_array_end]
-                    strict_text = decoded
 
                 lenient_prediction: dict[str, Any] | None = None
                 lenient_error: str | None = None
@@ -138,11 +130,9 @@ class Stage2KeypointInferenceRunner:
                             "hit_max_new_tokens": hit_max_new_tokens,
                             "closed_json_array": closed_json_array,
                             "stop_reason": (
-                                "json_array_closed"
-                                if closed_json_array
-                                else "max_new_tokens"
+                                "max_new_tokens"
                                 if hit_max_new_tokens
-                                else "unknown"
+                                else "eos_or_unknown"
                             ),
                         },
                         "lenient": {
