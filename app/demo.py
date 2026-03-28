@@ -320,10 +320,6 @@ def _render_status_panel(
         <span class="status-label">Stop Reason</span>
         <span class="status-value">{generation["stop_reason"]}</span>
       </div>
-      <div class="status-card">
-        <span class="status-label">JSON Closed</span>
-        <span class="status-value">{'<span class="badge ok">YES</span>' if generation["closed_json_array"] else '<span class="badge fail">NO</span>'}</span>
-      </div>
     </div>
     <div class="compact-note" style="margin-top: 14px;">
       Current generation budget: <strong>{max_new_tokens}</strong> new tokens

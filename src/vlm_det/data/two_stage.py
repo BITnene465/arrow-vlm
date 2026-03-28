@@ -341,7 +341,7 @@ def _deduplicate_stage1_records(
 def _encode_stage2_target(keypoints_2d: list[list[int]]) -> str:
     import json
 
-    return json.dumps(keypoints_2d, ensure_ascii=False, separators=(",", ":"))
+    return json.dumps({"keypoints_2d": keypoints_2d}, ensure_ascii=False, separators=(",", ":"))
 
 
 def _round_bbox(bbox: list[float]) -> list[float]:

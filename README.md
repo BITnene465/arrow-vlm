@@ -168,6 +168,7 @@ Two-stage experiments derive two datasets from the processed annotations:
 - `stage2`: target-conditioned crop supervision
   - crop image
   - main-arrow keypoint skeleton target
+  - target format: `{"keypoints_2d":[[x0,y0],[x1,y1],...]}`
 
 Prepare Stage1:
 
@@ -225,10 +226,11 @@ Stage1 tile sizing is now ratio-driven:
 Stage 2 uses crop-local coordinates. For every target instance:
 
 - the crop is centered on the target bbox
-- default padding ratio is `0.2`
+- default padding ratio is `0.3`
 - out-of-bound crop area is padded with black pixels
 - training targets are reprojected into the crop-local `[0,999]` coordinate system
 - stage2 JSONL stores structured `condition` fields, and the current prompt explicitly injects crop-local `label + bbox_2d`
+- stage2 target text is a JSON object: `{"keypoints_2d":[[x0,y0],[x1,y1],...]}`
 - stage2 does not add noisy hint samples by default; set `--stage2-aug-ratio 0.3` if you want about 30% of train instances to receive one extra noisy sample
 - stage2 noisy augmentation only jitters the bbox crop condition; there is no endpoint jitter in the current formulation
 - current stage2 jitter defaults are conservative:

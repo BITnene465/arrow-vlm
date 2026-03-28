@@ -89,7 +89,13 @@ data/two_stage/reports/prepare_stage1_report.json
 
 ## Stage2 数据准备
 
-Stage2 数据是单目标 crop 数据集，训练时输出该 crop 中 main arrow 的 `keypoints_2d` 骨架。
+Stage2 数据是单目标 crop 数据集，训练时输出由 crop-local `label + bbox_2d` 指定的 target arrow 的 `keypoints_2d` 骨架。
+当前 target 格式是：
+
+```json
+{"keypoints_2d":[[x0,y0],[x1,y1],...]}
+```
+
 当前 prompt 会显式注入 crop-local 的 `label + bbox_2d`。
 
 命令：

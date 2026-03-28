@@ -18,17 +18,17 @@ class KeypointSequenceCodec:
         self.num_bins = int(num_bins)
 
     def encode(self, keypoints: list[list[float]], image_width: int, image_height: int) -> str:
-        payload = [
+        keypoints_2d = [
             [
                 self._quantize(point[0], image_width),
                 self._quantize(point[1], image_height),
             ]
             for point in keypoints
         ]
-        report = self.validate_points(payload)
+        report = self.validate_points(keypoints_2d)
         if not report.valid:
             raise ValueError("; ".join(report.errors))
-        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        return json.dumps({"keypoints_2d": keypoints_2d}, ensure_ascii=False, separators=(",", ":"))
 
     def decode(
         self,
@@ -58,7 +58,7 @@ class KeypointSequenceCodec:
         if isinstance(payload, dict):
             payload = payload.get("keypoints_2d")
         if not isinstance(payload, list):
-            raise ValueError("Decoded payload must be a JSON array of points.")
+            raise ValueError("Decoded payload must be an object with keypoints_2d or a JSON array of points.")
 
         keypoints_2d: list[list[int]] = []
         keypoints: list[list[float]] = []
