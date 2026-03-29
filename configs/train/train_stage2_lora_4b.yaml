@@ -70,7 +70,7 @@ lora:
   proj_target_modules: []
 
 train:
-  epochs: 5
+  epochs: 4
   per_device_batch_size: 24
   grad_accum_steps: 1
   gradient_checkpointing: true

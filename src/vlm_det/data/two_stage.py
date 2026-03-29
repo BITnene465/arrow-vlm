@@ -438,6 +438,7 @@ def build_padded_crop(
     *,
     bbox: list[float],
     padding_ratio: float,
+    max_aspect_ratio: float = 180.0,
 ) -> tuple[Image.Image, list[int]]:
     x1, y1, x2, y2 = [float(value) for value in bbox]
     width = max(x2 - x1, 1.0)
@@ -449,6 +450,24 @@ def build_padded_crop(
     crop_y1 = math.floor(y1 - pad_y)
     crop_x2 = math.ceil(x2 + pad_x)
     crop_y2 = math.ceil(y2 + pad_y)
+
+    crop_w = max(int(crop_x2 - crop_x1), 1)
+    crop_h = max(int(crop_y2 - crop_y1), 1)
+    if float(max_aspect_ratio) > 1.0:
+        if crop_w > crop_h and float(crop_w) / float(crop_h) > float(max_aspect_ratio):
+            target_h = int(math.ceil(float(crop_w) / float(max_aspect_ratio)))
+            extra = max(target_h - crop_h, 0)
+            expand_top = extra // 2
+            expand_bottom = extra - expand_top
+            crop_y1 -= expand_top
+            crop_y2 += expand_bottom
+        elif crop_h > crop_w and float(crop_h) / float(crop_w) > float(max_aspect_ratio):
+            target_w = int(math.ceil(float(crop_h) / float(max_aspect_ratio)))
+            extra = max(target_w - crop_w, 0)
+            expand_left = extra // 2
+            expand_right = extra - expand_left
+            crop_x1 -= expand_left
+            crop_x2 += expand_right
 
     crop_w = max(int(crop_x2 - crop_x1), 1)
     crop_h = max(int(crop_y2 - crop_y1), 1)

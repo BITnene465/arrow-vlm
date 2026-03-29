@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import os
 from pathlib import Path
 
 import torch
@@ -326,7 +327,17 @@ def _render_status_panel(
       &nbsp;|&nbsp; hit max: <strong>{generation["hit_max_new_tokens"]}</strong>
     </div>
     {error_html}
-    """
+"""
+
+
+def _disable_socks_proxy_env_for_gradio() -> list[str]:
+    removed: list[str] = []
+    for key in ("ALL_PROXY", "all_proxy"):
+        value = os.environ.get(key)
+        if value and value.lower().startswith("socks"):
+            os.environ.pop(key, None)
+            removed.append(key)
+    return removed
 
 def build_demo(
     runner,
@@ -335,13 +346,18 @@ def build_demo(
     default_max_new_tokens: int | None = None,
     runner_factory=None,
 ):
+    removed_proxy_keys = _disable_socks_proxy_env_for_gradio()
     try:
         import gradio as gr
     except ImportError as exc:
+        proxy_hint = ""
+        if removed_proxy_keys:
+            proxy_hint = f" Removed SOCKS proxy env: {', '.join(removed_proxy_keys)}."
         raise RuntimeError(
             "Failed to import gradio for the inference app. "
             "If this environment uses a SOCKS proxy, install `httpx[socks]`/`socksio` "
             "or unset the proxy variables before launching `app/demo.py`."
+            f"{proxy_hint}"
         ) from exc
 
     effective_default_max_new_tokens = default_max_new_tokens or infer_config.eval.max_new_tokens or 2048

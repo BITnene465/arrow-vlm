@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import os
 from pathlib import Path
 
 import torch
@@ -61,11 +62,30 @@ def _discover_checkpoint_choices(current_checkpoint_path: str | None) -> list[st
     return sorted(discovered)
 
 
+def _disable_socks_proxy_env_for_gradio() -> list[str]:
+    removed: list[str] = []
+    for key in ("ALL_PROXY", "all_proxy"):
+        value = os.environ.get(key)
+        if value and value.lower().startswith("socks"):
+            os.environ.pop(key, None)
+            removed.append(key)
+    return removed
+
+
 def build_demo(args: argparse.Namespace):
+    removed_proxy_keys = _disable_socks_proxy_env_for_gradio()
     try:
         import gradio as gr
     except ImportError as exc:
-        raise RuntimeError("Failed to import gradio for the two-stage inference app.") from exc
+        proxy_hint = ""
+        if removed_proxy_keys:
+            proxy_hint = f" Removed SOCKS proxy env: {', '.join(removed_proxy_keys)}."
+        raise RuntimeError(
+            "Failed to import gradio for the two-stage inference app. "
+            "If this environment uses a SOCKS proxy, install `httpx[socks]`/`socksio` "
+            "or unset the proxy variables before launching `app/demo_two_stage.py`."
+            f"{proxy_hint}"
+        ) from exc
 
     infer_config = load_two_stage_inference_config(args.config)
     initial_runner = None
