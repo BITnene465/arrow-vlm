@@ -2,6 +2,10 @@ model:
   min_pixels: 200704
   max_pixels: 1048576
 
+task:
+  task_type: joint_structure
+  domain_type: arrow
+
 prompt:
   system_prompt: ""
   user_prompt: |

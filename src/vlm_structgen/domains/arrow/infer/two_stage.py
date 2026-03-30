@@ -582,8 +582,8 @@ def _load_stage2_runner(
         config=config,
         artifacts=artifacts,
         adapter=get_adapter(
-            task_type="keypoint_sequence",
-            domain_type="arrow",
+            task_type=config.task.task_type,
+            domain_type=config.task.domain_type,
             num_bins=config.tokenizer.num_bins,
         ),
         device=device,

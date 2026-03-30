@@ -1,4 +1,7 @@
 stage1:
+  task:
+    task_type: grounding
+    domain_type: arrow
   include_full_image: true
   tile_size_ratios: [0.35, 0.5]
   min_tile_size: 512
@@ -21,6 +24,9 @@ stage1:
     use_cache: true
 
 stage2:
+  task:
+    task_type: keypoint_sequence
+    domain_type: arrow
   model:
     min_pixels: 50176
     max_pixels: 262144

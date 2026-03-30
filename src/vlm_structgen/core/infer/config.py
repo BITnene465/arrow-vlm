@@ -27,6 +27,13 @@ class InferPromptConfig:
 
 
 @dataclass
+class InferTaskConfig:
+    task_type: str | None = None
+    domain_type: str | None = None
+    options: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class InferEvalConfig:
     max_new_tokens: int | None = None
     num_beams: int | None = None
@@ -47,6 +54,7 @@ class InferAppConfig:
 @dataclass
 class OneStageInferenceConfig:
     model: InferModelConfig = field(default_factory=InferModelConfig)
+    task: InferTaskConfig = field(default_factory=InferTaskConfig)
     prompt: InferPromptConfig = field(default_factory=InferPromptConfig)
     eval: InferEvalConfig = field(default_factory=InferEvalConfig)
     app: InferAppConfig = field(default_factory=InferAppConfig)
@@ -56,6 +64,7 @@ class OneStageInferenceConfig:
 @dataclass
 class TwoStageStageInferenceConfig:
     model: InferModelConfig = field(default_factory=InferModelConfig)
+    task: InferTaskConfig = field(default_factory=InferTaskConfig)
     prompt: InferPromptConfig = field(default_factory=InferPromptConfig)
     eval: InferEvalConfig = field(default_factory=InferEvalConfig)
     batch_size: int = 1
@@ -123,7 +132,15 @@ def _extract_runtime_payload_from_checkpoint_meta(checkpoint_path: str | Path) -
     for section_name in ("model", "tokenizer", "task", "prompt", "finetune", "lora", "eval", "train"):
         section_value = checkpoint_config.get(section_name)
         if isinstance(section_value, dict):
-            runtime_payload[section_name] = section_value
+            runtime_payload[section_name] = dict(section_value)
+    task_payload = runtime_payload.get("task")
+    if isinstance(task_payload, dict):
+        legacy_task_type = task_payload.get("type")
+        if task_payload.get("task_type") is None and legacy_task_type is not None:
+            task_payload["task_type"] = str(legacy_task_type)
+        task_type = str(task_payload.get("task_type") or "").strip().lower()
+        if task_type == "arrow_structure":
+            task_payload["task_type"] = "joint_structure"
     return runtime_payload
 
 
@@ -168,12 +185,22 @@ def _apply_eval_overrides(runtime: ExperimentRuntimeConfig, eval_cfg: InferEvalC
         runtime.eval.use_cache = eval_cfg.use_cache
 
 
+def _apply_task_overrides(runtime: ExperimentRuntimeConfig, task_cfg: InferTaskConfig) -> None:
+    if task_cfg.task_type is not None:
+        runtime.task.task_type = task_cfg.task_type
+    if task_cfg.domain_type is not None:
+        runtime.task.domain_type = task_cfg.domain_type
+    if task_cfg.options:
+        runtime.task.options = dict(task_cfg.options)
+
+
 def build_runtime_from_one_stage_infer_config(
     checkpoint_path: str | Path,
     infer_config: OneStageInferenceConfig,
 ) -> ExperimentRuntimeConfig:
     runtime = _build_runtime_from_checkpoint(checkpoint_path)
     _apply_model_overrides(runtime, infer_config.model)
+    _apply_task_overrides(runtime, infer_config.task)
     _apply_prompt_overrides(runtime, infer_config.prompt)
     _apply_eval_overrides(runtime, infer_config.eval)
     return runtime
@@ -185,6 +212,7 @@ def build_runtime_from_two_stage_infer_config(
 ) -> ExperimentRuntimeConfig:
     runtime = _build_runtime_from_checkpoint(checkpoint_path)
     _apply_model_overrides(runtime, infer_config.model)
+    _apply_task_overrides(runtime, infer_config.task)
     _apply_prompt_overrides(runtime, infer_config.prompt)
     _apply_eval_overrides(runtime, infer_config.eval)
     return runtime
