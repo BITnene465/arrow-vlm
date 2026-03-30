@@ -240,6 +240,7 @@ Stage 2 uses crop-local coordinates. For every target instance:
 More detailed usage is documented in:
 
 - [docs/data_prepare.md](/home/tanjingyuan/code/arrow-vlm/docs/data_prepare.md)
+- [docs/standard_data_format.md](/home/tanjingyuan/code/arrow-vlm/docs/standard_data_format.md)
 - [docs/task_domain_routing.md](/home/tanjingyuan/code/arrow-vlm/docs/task_domain_routing.md)
 - [docs/refactor_relaunch.md](/home/tanjingyuan/code/arrow-vlm/docs/refactor_relaunch.md)
 - [docs/developer_task_extension.md](/home/tanjingyuan/code/arrow-vlm/docs/developer_task_extension.md)

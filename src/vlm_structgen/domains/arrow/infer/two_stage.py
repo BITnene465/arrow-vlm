@@ -14,6 +14,8 @@ from vlm_structgen.domains.arrow.data.two_stage import (
     _build_sliding_crop_boxes,
     _resolve_stage1_tile_sizes,
     build_padded_crop,
+    quantize_bbox_2d,
+    to_crop_local_bbox,
 )
 from vlm_structgen.core.infer.config import (
     TwoStageInferenceConfig,
@@ -486,18 +488,13 @@ class TwoStageInferenceRunner:
                 padding_ratio=self.padding_ratio,
             )
             crop_width, crop_height = crop_image.size
-            local_bbox = [
-                float(bbox[0]) - float(crop_box[0]),
-                float(bbox[1]) - float(crop_box[1]),
-                float(bbox[2]) - float(crop_box[0]),
-                float(bbox[3]) - float(crop_box[1]),
-            ]
-            local_bbox_2d = self.stage2_runner.codec.num_bins and [
-                self.stage2_runner.codec._quantize(float(local_bbox[0]), crop_width),
-                self.stage2_runner.codec._quantize(float(local_bbox[1]), crop_height),
-                self.stage2_runner.codec._quantize(float(local_bbox[2]), crop_width),
-                self.stage2_runner.codec._quantize(float(local_bbox[3]), crop_height),
-            ]
+            local_bbox = to_crop_local_bbox([float(value) for value in bbox], crop_box)
+            local_bbox_2d = quantize_bbox_2d(
+                local_bbox,
+                crop_width,
+                crop_height,
+                self.stage2_runner.adapter.num_bins,
+            )
             stage2_requests.append(
                 Stage2Request(
                     index=index,

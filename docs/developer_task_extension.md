@@ -24,6 +24,10 @@ src/vlm_structgen/
 - `domains`
   - 定义“对象语义是什么、label 集是什么、schema 长什么样、数据怎么准备”
 
+标准训练数据字段定义见：
+
+- [standard_data_format.md](/home/tanjingyuan/code/arrow-vlm/docs/standard_data_format.md)
+
 ---
 
 ## 1. 两个路由字段
