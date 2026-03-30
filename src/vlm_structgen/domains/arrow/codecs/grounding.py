@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from vlm_structgen.domains.arrow.codecs.structure import ArrowCodec, ValidationReport
@@ -8,24 +9,61 @@ from vlm_structgen.domains.arrow.schema import ARROW_LABELS
 
 class GroundingCodec(ArrowCodec):
     def encode(self, gt_struct: dict[str, Any], image_width: int, image_height: int) -> str:
+        payload, _loss_meta = self.encode_with_loss_meta(
+            gt_struct,
+            image_width=image_width,
+            image_height=image_height,
+        )
+        return payload
+
+    def encode_with_loss_meta(
+        self,
+        gt_struct: dict[str, Any],
+        image_width: int,
+        image_height: int,
+    ) -> tuple[str, dict[str, Any]]:
         instances = gt_struct.get("instances", [])
-        payload: list[dict[str, Any]] = []
+        parts: list[str] = []
+        cursor = 0
+        label_spans: list[list[int]] = []
+        bbox_spans: list[list[int]] = []
+
+        def append(text: str) -> None:
+            nonlocal cursor
+            parts.append(text)
+            cursor += len(text)
+
+        append("[")
         for instance in instances:
             bbox = instance.get("bbox", [])
             if len(bbox) != 4:
                 raise ValueError("Grounding instances must contain bbox with 4 values.")
-            payload.append(
-                {
-                    "label": str(instance.get("label", "")),
-                    "bbox_2d": [
-                        self._quantize(float(bbox[0]), image_width),
-                        self._quantize(float(bbox[1]), image_height),
-                        self._quantize(float(bbox[2]), image_width),
-                        self._quantize(float(bbox[3]), image_height),
-                    ],
-                }
-            )
-        return self._dump_json(payload)
+            if cursor > 1:
+                append(",")
+            append('{"label":')
+            label_text = json.dumps(str(instance.get("label", "")), ensure_ascii=False, separators=(",", ":"))
+            label_start = cursor
+            append(label_text)
+            label_spans.append([label_start, cursor])
+            append(',"bbox_2d":')
+            bbox_values = [
+                self._quantize(float(bbox[0]), image_width),
+                self._quantize(float(bbox[1]), image_height),
+                self._quantize(float(bbox[2]), image_width),
+                self._quantize(float(bbox[3]), image_height),
+            ]
+            bbox_text = json.dumps(bbox_values, ensure_ascii=False, separators=(",", ":"))
+            bbox_start = cursor
+            append(bbox_text)
+            bbox_spans.append([bbox_start, cursor])
+            append("}")
+        append("]")
+        return "".join(parts), {
+            "field_char_spans": {
+                "label": label_spans,
+                "bbox_2d": bbox_spans,
+            }
+        }
 
     def decode_with_meta(
         self,

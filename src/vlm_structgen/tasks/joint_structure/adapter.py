@@ -90,7 +90,8 @@ class ArrowJointStructureAdapter(BaseArrowAdapter):
         return counts
 
 
-def build_joint_structure_adapter(*, domain_type: str, num_bins: int):
+def build_joint_structure_adapter(*, domain_type: str, num_bins: int, task_options: dict[str, Any] | None = None):
+    del task_options
     if domain_type == "arrow":
         return ArrowJointStructureAdapter(codec=ArrowCodec(num_bins=num_bins))
     raise ValueError(f"Unsupported joint_structure domain_type: {domain_type!r}")

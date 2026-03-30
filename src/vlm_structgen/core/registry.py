@@ -19,6 +19,15 @@ class TaskAdapter(Protocol):
     def encode_target_text(self, gt_struct: dict, *, image_width: int, image_height: int) -> str:
         ...
 
+    def build_training_target(
+        self,
+        gt_struct: dict,
+        *,
+        image_width: int,
+        image_height: int,
+    ) -> dict:
+        ...
+
     def decode(self, text: str, *, image_width: int, image_height: int, strict: bool = False) -> dict:
         ...
 
@@ -45,7 +54,7 @@ class TaskAdapter(Protocol):
     ) -> dict[str, float]:
         ...
 
-    def compute_loss(self, model_outputs, batch: dict) -> object:
+    def compute_loss(self, model_outputs, batch: dict, *, tokenizer=None) -> object:
         ...
 
 
@@ -71,20 +80,39 @@ def normalize_domain_type(domain_type: str | None) -> str:
     return normalized
 
 
-@lru_cache(maxsize=32)
-def get_adapter(*, task_type: str | None, domain_type: str | None, num_bins: int) -> TaskAdapter:
+@lru_cache(maxsize=64)
+def get_adapter(
+    *,
+    task_type: str | None,
+    domain_type: str | None,
+    num_bins: int,
+    task_options_key: tuple[tuple[str, object], ...] = (),
+) -> TaskAdapter:
     normalized_task_type = normalize_task_type(task_type)
     normalized_domain_type = normalize_domain_type(domain_type)
+    task_options = dict(task_options_key)
     if normalized_task_type == "grounding":
         from vlm_structgen.tasks.grounding.adapter import build_grounding_adapter
 
-        return build_grounding_adapter(domain_type=normalized_domain_type, num_bins=num_bins)
+        return build_grounding_adapter(
+            domain_type=normalized_domain_type,
+            num_bins=num_bins,
+            task_options=task_options,
+        )
     if normalized_task_type == "keypoint_sequence":
         from vlm_structgen.tasks.keypoint_sequence.adapter import build_keypoint_sequence_adapter
 
-        return build_keypoint_sequence_adapter(domain_type=normalized_domain_type, num_bins=num_bins)
+        return build_keypoint_sequence_adapter(
+            domain_type=normalized_domain_type,
+            num_bins=num_bins,
+            task_options=task_options,
+        )
     if normalized_task_type == "joint_structure":
         from vlm_structgen.tasks.joint_structure.adapter import build_joint_structure_adapter
 
-        return build_joint_structure_adapter(domain_type=normalized_domain_type, num_bins=num_bins)
+        return build_joint_structure_adapter(
+            domain_type=normalized_domain_type,
+            num_bins=num_bins,
+            task_options=task_options,
+        )
     raise ValueError(f"Unsupported task/domain combination: task_type={normalized_task_type!r}, domain_type={normalized_domain_type!r}")

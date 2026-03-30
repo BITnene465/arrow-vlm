@@ -26,6 +26,9 @@ tokenizer:
 task:
   task_type: grounding
   domain_type: arrow
+  options:
+    bbox_token_loss_weight: 2.0
+    label_token_loss_weight: 1.5
 
 prompt:
   system_prompt: ""

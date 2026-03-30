@@ -62,6 +62,7 @@ class PromptConfig:
 class TaskConfig:
     task_type: str = "joint_structure"
     domain_type: str = "arrow"
+    options: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

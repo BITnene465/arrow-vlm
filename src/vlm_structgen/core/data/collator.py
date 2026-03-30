@@ -126,6 +126,7 @@ class SFTCollator:
                 "user_prompt": [item["user_prompt"] for item in batch],
                 "gt_struct": [item["gt_struct"] for item in batch],
                 "target_text": [item["target_text"] for item in batch],
+                "loss_meta": [item.get("loss_meta") for item in batch],
             },
         }
         if prefix_mm_token_type_ids is not None:

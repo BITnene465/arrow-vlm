@@ -157,7 +157,7 @@ class Trainer:
         with autocast_context:
             outputs = self.model(**model_inputs)
             adapter = self._resolve_batch_adapter(batch)
-            loss = adapter.compute_loss(outputs, batch) / self.config.train.grad_accum_steps
+            loss = adapter.compute_loss(outputs, batch, tokenizer=self.tokenizer) / self.config.train.grad_accum_steps
         loss.backward()
 
         self._accumulated_micro_steps += 1
@@ -208,6 +208,7 @@ class Trainer:
             task_type=task_type,
             domain_type=domain_type,
             num_bins=self.config.tokenizer.num_bins,
+            task_options_key=tuple(sorted(self.config.task.options.items())),
         )
 
     def evaluate(self, step: int | None = None, epoch: int | None = None) -> dict[str, float]:

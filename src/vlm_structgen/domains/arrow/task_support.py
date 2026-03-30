@@ -146,6 +146,23 @@ class BaseArrowAdapter:
     def empty_prediction(self) -> dict[str, Any]:
         return {"instances": []}
 
-    def compute_loss(self, model_outputs, batch: dict[str, Any]) -> object:
+    def build_training_target(
+        self,
+        gt_struct: dict[str, Any],
+        *,
+        image_width: int,
+        image_height: int,
+    ) -> dict[str, Any]:
+        return {
+            "target_text": self.encode_target_text(
+                gt_struct,
+                image_width=image_width,
+                image_height=image_height,
+            ),
+            "loss_meta": None,
+        }
+
+    def compute_loss(self, model_outputs, batch: dict[str, Any], *, tokenizer=None) -> object:
+        del tokenizer
         del batch
         return model_outputs.loss

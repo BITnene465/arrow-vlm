@@ -75,7 +75,8 @@ class ArrowKeypointSequenceAdapter(BaseArrowAdapter):
         return counts
 
 
-def build_keypoint_sequence_adapter(*, domain_type: str, num_bins: int):
+def build_keypoint_sequence_adapter(*, domain_type: str, num_bins: int, task_options: dict[str, Any] | None = None):
+    del task_options
     if domain_type == "arrow":
         return ArrowKeypointSequenceAdapter(codec=KeypointSequenceCodec(num_bins=num_bins))
     raise ValueError(f"Unsupported keypoint_sequence domain_type: {domain_type!r}")
