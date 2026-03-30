@@ -22,7 +22,7 @@ def __getattr__(name: str) -> Any:
             "load_inference_runner": load_inference_runner,
         }[name]
     if name in {"Stage2KeypointInferenceRunner", "TwoStageInferenceRunner", "load_two_stage_inference_runner"}:
-        from vlm_det.infer.two_stage import (
+        from vlm_det.domains.arrow.infer.two_stage import (
             Stage2KeypointInferenceRunner,
             TwoStageInferenceRunner,
             load_two_stage_inference_runner,
@@ -34,7 +34,7 @@ def __getattr__(name: str) -> Any:
             "load_two_stage_inference_runner": load_two_stage_inference_runner,
         }[name]
     if name in {"draw_prediction", "format_prediction_summary"}:
-        from vlm_det.infer.visualize import draw_prediction, format_prediction_summary
+        from vlm_det.domains.arrow.infer.visualize import draw_prediction, format_prediction_summary
 
         return {
             "draw_prediction": draw_prediction,

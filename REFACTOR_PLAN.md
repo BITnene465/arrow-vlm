@@ -359,7 +359,7 @@ class TaskAdapter(Protocol):
 
 - `GroundingCodec`
 - `ArrowCodec`
-- `two_stage_stage1_grounding`
+- `grounding`
 - `label/bbox/keypoints` 的字段构造
 
 #### 目标

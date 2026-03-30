@@ -114,8 +114,17 @@ class ArrowSFTDataset(Dataset):
         return lengths
 
     def _get_adapter(self, record: dict[str, Any]):
-        return get_adapter(
-            task_type=record.get("task_type"),
-            domain_type=record.get("domain_type"),
-            num_bins=self.num_bins,
-        )
+        try:
+            return get_adapter(
+                task_type=record.get("task_type"),
+                domain_type=record.get("domain_type"),
+                num_bins=self.num_bins,
+            )
+        except Exception as exc:  # noqa: BLE001
+            sample_id = record.get("sample_id") or Path(str(record.get("image_path", ""))).stem or "<unknown>"
+            raise ValueError(
+                "Dataset record is missing a valid task/domain route. "
+                f"sample_id={sample_id!r}, task_type={record.get('task_type')!r}, "
+                f"domain_type={record.get('domain_type')!r}. "
+                "Regenerate the dataset with the current preparation scripts."
+            ) from exc

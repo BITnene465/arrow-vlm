@@ -8,7 +8,7 @@ from typing import Any
 
 from PIL import Image
 
-from vlm_det.data.ordering import normalize_instance_keypoint_order, sort_instances_canonical
+from vlm_det.domains.arrow.ordering import normalize_instance_keypoint_order, sort_instances_canonical
 from vlm_det.utils.io import write_json, write_jsonl
 
 # Some paper figures are extremely large. During data preparation we only need

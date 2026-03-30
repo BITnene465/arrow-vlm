@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from vlm_det.protocol.schema import (
+from vlm_det.domains.arrow.schema import (
     ARROW_LABELS,
     ArrowAnnotation,
     ArrowInstance,

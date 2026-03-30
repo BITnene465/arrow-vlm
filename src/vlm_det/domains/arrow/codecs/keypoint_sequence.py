@@ -4,7 +4,11 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from vlm_det.protocol.codec import JSON_FENCE_PATTERN, extract_balanced_json, recover_truncated_json_array
+from vlm_det.domains.arrow.codecs.structure import (
+    JSON_FENCE_PATTERN,
+    extract_balanced_json,
+    recover_truncated_json_array,
+)
 
 
 @dataclass

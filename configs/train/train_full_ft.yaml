@@ -27,6 +27,10 @@ tokenizer:
   num_bins: 1000
   add_eos_token: true
 
+task:
+  task_type: joint_structure
+  domain_type: arrow
+
 prompt:
   system_prompt: ""
   user_prompt: |

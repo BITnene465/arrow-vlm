@@ -24,7 +24,8 @@ tokenizer:
   add_eos_token: true
 
 task:
-  type: grounding
+  task_type: grounding
+  domain_type: arrow
 
 prompt:
   system_prompt: ""

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from vlm_det.infer.visualize import format_prediction_summary
+from vlm_det.domains.arrow.infer.visualize import format_prediction_summary
 
 
 def parse_args() -> argparse.Namespace:

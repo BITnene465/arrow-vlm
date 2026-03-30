@@ -29,7 +29,7 @@ def _parse_bool_flag(value: str) -> bool:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train Qwen3-VL on arrow grounding and keypoint prediction.")
+    parser = argparse.ArgumentParser(description="Train Qwen3-VL on routed multimodal structured-generation tasks.")
     parser.add_argument("--config", required=True)
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--stage-name", default=None)

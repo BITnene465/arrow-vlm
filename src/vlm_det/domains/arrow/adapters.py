@@ -4,9 +4,9 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
-from vlm_det.protocol.codec import ArrowCodec
-from vlm_det.protocol.grounding_codec import GroundingCodec
-from vlm_det.protocol.keypoint_codec import KeypointSequenceCodec
+from vlm_det.domains.arrow.codecs.grounding import GroundingCodec
+from vlm_det.domains.arrow.codecs.keypoint_sequence import KeypointSequenceCodec
+from vlm_det.domains.arrow.codecs.structure import ArrowCodec
 
 
 def _empty_counts() -> dict[str, float]:

@@ -3,6 +3,9 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Protocol
 
+SUPPORTED_TASK_TYPES = {"grounding", "keypoint_sequence", "joint_structure"}
+SUPPORTED_DOMAIN_TYPES = {"arrow"}
+
 
 class TaskAdapter(Protocol):
     task_type: str
@@ -44,20 +47,24 @@ class TaskAdapter(Protocol):
 
 
 def normalize_task_type(task_type: str | None) -> str:
-    normalized = (task_type or "").strip().lower()
-    if normalized in {"", "one_stage", "arrow_structure", "joint_structure"}:
-        return "joint_structure"
-    if normalized in {"grounding", "two_stage_stage1_grounding"}:
-        return "grounding"
-    if normalized in {"keypoint_sequence", "two_stage_stage2"}:
-        return "keypoint_sequence"
+    normalized = str(task_type or "").strip().lower()
+    if not normalized:
+        raise ValueError("task_type is required.")
+    if normalized not in SUPPORTED_TASK_TYPES:
+        raise ValueError(
+            f"Unsupported task_type={normalized!r}. Expected one of {sorted(SUPPORTED_TASK_TYPES)}."
+        )
     return normalized
 
 
 def normalize_domain_type(domain_type: str | None) -> str:
-    normalized = (domain_type or "").strip().lower()
+    normalized = str(domain_type or "").strip().lower()
     if not normalized:
-        return "arrow"
+        raise ValueError("domain_type is required.")
+    if normalized not in SUPPORTED_DOMAIN_TYPES:
+        raise ValueError(
+            f"Unsupported domain_type={normalized!r}. Expected one of {sorted(SUPPORTED_DOMAIN_TYPES)}."
+        )
     return normalized
 
 
@@ -73,4 +80,3 @@ def get_adapter(*, task_type: str | None, domain_type: str | None, num_bins: int
         f"Unsupported task/domain combination: task_type={normalized_task_type!r}, "
         f"domain_type={normalized_domain_type!r}"
     )
-

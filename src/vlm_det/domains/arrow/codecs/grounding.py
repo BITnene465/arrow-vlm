@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from vlm_det.protocol.codec import ArrowCodec, ValidationReport
-from vlm_det.protocol.schema import ARROW_LABELS
+from vlm_det.domains.arrow.codecs.structure import ArrowCodec, ValidationReport
+from vlm_det.domains.arrow.schema import ARROW_LABELS
 
 
 class GroundingCodec(ArrowCodec):

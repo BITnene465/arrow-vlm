@@ -10,7 +10,7 @@ from pathlib import Path
 import torch
 from PIL import Image
 
-from vlm_det.infer import draw_prediction
+from vlm_det.domains.arrow.infer.visualize import draw_prediction
 from vlm_det.infer.config import load_one_stage_inference_config
 from vlm_det.infer.runner import load_inference_runner
 

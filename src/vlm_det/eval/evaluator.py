@@ -117,7 +117,7 @@ class ArrowEvaluator:
         for row_index, _prompt_length in enumerate(batch["prompt_lengths"].tolist()):
             counts["samples"] += 1.0
             task_type = batch["meta"]["task_type"][row_index]
-            domain_type = batch["meta"].get("domain_type", ["arrow"])[row_index]
+            domain_type = batch["meta"]["domain_type"][row_index]
             adapter = get_adapter(
                 task_type=task_type,
                 domain_type=domain_type,

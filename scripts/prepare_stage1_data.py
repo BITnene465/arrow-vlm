@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from vlm_det.data.two_stage import prepare_stage1_data
+from vlm_det.domains.arrow.data.two_stage import prepare_stage1_data
 
 
 def _parse_float_sequence(raw: str) -> list[float]:

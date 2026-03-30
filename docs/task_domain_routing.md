@@ -12,6 +12,12 @@
 - `task_type=joint_structure`
 - `domain_type=arrow`
 
+当前实现要求：
+
+- 所有训练/验证 JSONL 都必须显式写入 `task_type`
+- 所有训练/验证 JSONL 都必须显式写入 `domain_type`
+- 旧数据不再兼容，必须用当前数据准备脚本重新生成
+
 核心原则：
 
 - `task_type` 和 `domain_type` 必须解耦

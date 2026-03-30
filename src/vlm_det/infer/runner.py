@@ -201,7 +201,7 @@ def load_inference_runner(
     )
     unwrap_model(artifacts.model).eval()
     adapter = get_adapter(
-        task_type=config.task.task_type or config.task.type,
+        task_type=config.task.task_type,
         domain_type=config.task.domain_type,
         num_bins=config.tokenizer.num_bins,
     )

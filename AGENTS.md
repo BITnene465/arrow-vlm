@@ -46,7 +46,7 @@ python scripts/prepare_data.py \
 ```
 
 - `data/processed/train.jsonl` 和 `data/processed/val.jsonl` 中保存的是像素坐标
-- 坐标归一化到 `[0,999]` 发生在 `ArrowCodec.encode()`
+- 坐标归一化到 `[0,999]` 发生在对应任务 codec 的 `encode()` 阶段
 - canonical order 必须在数据准备 / synthetic 导出阶段确定，`dataset.py` 只忠实读取 JSONL
 - LabelMe 框类别映射：
   - `c0~c3 -> single_arrow`

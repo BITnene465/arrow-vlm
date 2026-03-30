@@ -60,8 +60,7 @@ class PromptConfig:
 
 @dataclass
 class TaskConfig:
-    type: str = "arrow_structure"
-    task_type: str | None = None
+    task_type: str = "joint_structure"
     domain_type: str = "arrow"
 
 

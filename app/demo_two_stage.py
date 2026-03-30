@@ -11,8 +11,8 @@ import torch
 from PIL import Image
 
 from vlm_det.infer.config import load_two_stage_inference_config
-from vlm_det.infer.two_stage import load_two_stage_inference_runner
-from vlm_det.infer.visualize import draw_prediction, format_prediction_summary
+from vlm_det.domains.arrow.infer.two_stage import load_two_stage_inference_runner
+from vlm_det.domains.arrow.infer.visualize import draw_prediction, format_prediction_summary
 
 
 def parse_args() -> argparse.Namespace:

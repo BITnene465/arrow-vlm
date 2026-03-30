@@ -12,7 +12,7 @@ from typing import Any
 
 from PIL import Image
 
-from vlm_det.data.ordering import (
+from vlm_det.domains.arrow.ordering import (
     grounding_instance_sort_key,
     sort_grounding_instances_canonical,
     sort_instances_canonical,
@@ -1177,54 +1177,3 @@ def prepare_stage2_data(
     write_json(output_dir / "reports" / "prepare_stage2_report.json", report)
     return report
 
-
-def prepare_two_stage_data(
-    *,
-    input_dir: str | Path,
-    output_dir: str | Path,
-    padding_ratio: float = 0.2,
-    num_bins: int = 1000,
-    num_workers: int | None = None,
-    stage2_aug_ratio: float = 0.0,
-    bbox_center_jitter_ratio: float = 0.03,
-    bbox_scale_jitter_ratio: float = 0.05,
-    augmentation_seed: int = 42,
-    stage1_include_full_image: bool = True,
-    stage1_tile_size_ratios: list[float] | tuple[float, ...] | None = None,
-    stage1_min_tile_size: int = 512,
-    stage1_max_tile_size: int = 1280,
-    stage1_tile_stride_ratio: float = 0.75,
-    stage1_density_min_instances: int = 5,
-    stage1_density_max_instances: int = 30,
-    stage1_density_max_crops_per_size: int = 8,
-) -> dict[str, Any]:
-    stage1_report = prepare_stage1_data(
-        input_dir=input_dir,
-        output_dir=output_dir,
-        num_workers=num_workers,
-        stage1_include_full_image=stage1_include_full_image,
-        stage1_tile_size_ratios=stage1_tile_size_ratios,
-        stage1_min_tile_size=stage1_min_tile_size,
-        stage1_max_tile_size=stage1_max_tile_size,
-        stage1_tile_stride_ratio=stage1_tile_stride_ratio,
-        stage1_density_min_instances=stage1_density_min_instances,
-        stage1_density_max_instances=stage1_density_max_instances,
-        stage1_density_max_crops_per_size=stage1_density_max_crops_per_size,
-    )
-    stage2_report = prepare_stage2_data(
-        input_dir=input_dir,
-        output_dir=output_dir,
-        padding_ratio=padding_ratio,
-        num_bins=num_bins,
-        num_workers=num_workers,
-        stage2_aug_ratio=stage2_aug_ratio,
-        bbox_center_jitter_ratio=bbox_center_jitter_ratio,
-        bbox_scale_jitter_ratio=bbox_scale_jitter_ratio,
-        augmentation_seed=augmentation_seed,
-    )
-    report = {
-        "stage1": stage1_report,
-        "stage2": stage2_report,
-    }
-    write_json(Path(output_dir) / "reports" / "prepare_two_stage_report.json", report)
-    return report

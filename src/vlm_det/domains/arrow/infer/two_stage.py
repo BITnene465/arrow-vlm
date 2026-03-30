@@ -9,7 +9,7 @@ from PIL import Image
 
 from vlm_det.config import ExperimentRuntimeConfig
 from vlm_det.core.registry import get_adapter
-from vlm_det.data.two_stage import (
+from vlm_det.domains.arrow.data.two_stage import (
     _bbox_iou,
     _build_sliding_crop_boxes,
     _resolve_stage1_tile_sizes,
