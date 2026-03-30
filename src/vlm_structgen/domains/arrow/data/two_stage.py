@@ -108,6 +108,18 @@ def _save_image_atomic(image: Image.Image, output_path: Path) -> None:
         temp_path.unlink(missing_ok=True)
 
 
+def _copy_image_atomic(source_path: Path, output_path: Path) -> None:
+    ensure_dir(output_path.parent)
+    temp_path = output_path.with_name(f".{output_path.stem}.tmp-{os.getpid()}{output_path.suffix}")
+    try:
+        shutil.copy2(source_path, temp_path)
+        with Image.open(temp_path) as verify_image:
+            verify_image.verify()
+        os.replace(temp_path, output_path)
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
 def _sliding_window_starts(length: int, tile_size: int, stride: int) -> list[int]:
     if length <= tile_size:
         return [0]
@@ -264,19 +276,43 @@ def _build_stage1_crop_record(
     }
 
 
-def _build_stage1_full_image_record(record: dict[str, Any]) -> dict[str, Any]:
+def _copy_stage1_full_image(
+    *,
+    record: dict[str, Any],
+    split: str,
+    output_dir: Path,
+) -> Path:
+    source_path = Path(record["image_path"])
+    suffix = source_path.suffix or ".png"
+    copied_dir = ensure_dir(output_dir / "stage1" / "images" / split)
+    copied_path = copied_dir / f"{record['sample_id']}{suffix}"
+    _copy_image_atomic(source_path, copied_path)
+    return copied_path
+
+
+def _build_stage1_full_image_record(
+    record: dict[str, Any],
+    *,
+    split: str,
+    output_dir: Path,
+) -> dict[str, Any]:
     indexed_instances = [
         (_build_stage1_instance(instance), int(instance_index))
         for instance_index, instance in enumerate(record.get("instances", []))
     ]
     indexed_instances.sort(key=lambda item: grounding_instance_sort_key(item[0]))
+    copied_image_path = _copy_stage1_full_image(
+        record=record,
+        split=split,
+        output_dir=output_dir,
+    )
     return {
         "task_type": "grounding",
         "domain_type": "arrow",
         "sample_id": record["sample_id"],
         "source_sample_id": record["sample_id"],
         "source_type": "full_image",
-        "image_path": record["image_path"],
+        "image_path": str(copied_image_path),
         "image_width": int(record["image_width"]),
         "image_height": int(record["image_height"]),
         "instances": [item[0] for item in indexed_instances],
@@ -774,7 +810,13 @@ def _prepare_stage1_record(
     image = Image.open(image_path).convert("RGB")
     current_stage1: list[dict[str, Any]] = []
     if stage1_include_full_image:
-        current_stage1.append(_build_stage1_full_image_record(record))
+        current_stage1.append(
+            _build_stage1_full_image_record(
+                record,
+                split=split,
+                output_dir=Path(output_dir),
+            )
+        )
     current_stage1.extend(
         _enumerate_stage1_sliding_records(
             record=record,
@@ -1176,4 +1218,3 @@ def prepare_stage2_data(
     }
     write_json(output_dir / "reports" / "prepare_stage2_report.json", report)
     return report
-

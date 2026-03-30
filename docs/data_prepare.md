@@ -78,6 +78,7 @@ data/two_stage/reports/prepare_stage1_report.json
 说明：
 
 - train 和 val 都按同一套规则生成。
+- Stage1 整图样本也会复制到 `data/two_stage/stage1/images/<split>/`，训练时不会再回 `data/processed` 或原始图片目录找图。
 - Stage1 整图样本保留原图像素坐标。
 - Stage1 crop / tile 样本会转换成各自局部图像的像素坐标。
 - Stage1 只保留每个实例的：
