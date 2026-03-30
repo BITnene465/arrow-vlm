@@ -1,0 +1,51 @@
+stage1:
+  include_full_image: true
+  tile_size_ratios: [0.35, 0.5]
+  min_tile_size: 512
+  max_tile_size: 1280
+  tile_stride_ratio: 0.75
+  proposal_dedup_iou_threshold: 0.65
+  model:
+    min_pixels: 200704
+    max_pixels: 786432
+  prompt:
+    system_prompt: ""
+    user_prompt: |
+      Detect all arrows in the image and return their bounding boxes as a JSON array.
+      Use relative coordinates in [0,999].
+      Each item must be {"label":"single_arrow"|"double_arrow","bbox_2d":[x1,y1,x2,y2]}.
+  eval:
+    max_new_tokens: 2048
+    num_beams: 1
+    do_sample: false
+    use_cache: true
+
+stage2:
+  model:
+    min_pixels: 50176
+    max_pixels: 262144
+  prompt:
+    system_prompt: ""
+    user_prompt_template: |
+      The target arrow in this crop is specified by:
+      {"label":"{{label}}","bbox_2d":{{bbox_2d}}}
+      Output only a JSON object in [0,999].
+      Format: {"keypoints_2d":[[x0,y0],[x1,y1],...]}
+      Return the skeleton of this target arrow only.
+      For single_arrow, output the skeleton from tail to head.
+      For double_arrow, output the skeleton from the upper-left head to the other head.
+  batch_size: 4
+  eval:
+    max_new_tokens: 256
+    num_beams: 1
+    do_sample: false
+    use_cache: true
+
+padding_ratio: 0.3
+
+app:
+  host: 127.0.0.1
+  port: 7861
+  share: false
+
+output_dir: null

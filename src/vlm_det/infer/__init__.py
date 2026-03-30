@@ -5,6 +5,9 @@ from typing import Any
 __all__ = [
     "ArrowInferenceRunner",
     "load_inference_runner",
+    "Stage2KeypointInferenceRunner",
+    "TwoStageInferenceRunner",
+    "load_two_stage_inference_runner",
     "draw_prediction",
     "format_prediction_summary",
 ]
@@ -17,6 +20,18 @@ def __getattr__(name: str) -> Any:
         return {
             "ArrowInferenceRunner": ArrowInferenceRunner,
             "load_inference_runner": load_inference_runner,
+        }[name]
+    if name in {"Stage2KeypointInferenceRunner", "TwoStageInferenceRunner", "load_two_stage_inference_runner"}:
+        from vlm_det.infer.two_stage import (
+            Stage2KeypointInferenceRunner,
+            TwoStageInferenceRunner,
+            load_two_stage_inference_runner,
+        )
+
+        return {
+            "Stage2KeypointInferenceRunner": Stage2KeypointInferenceRunner,
+            "TwoStageInferenceRunner": TwoStageInferenceRunner,
+            "load_two_stage_inference_runner": load_two_stage_inference_runner,
         }[name]
     if name in {"draw_prediction", "format_prediction_summary"}:
         from vlm_det.infer.visualize import draw_prediction, format_prediction_summary

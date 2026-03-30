@@ -10,6 +10,7 @@ __pycache__/
 .eggs/
 build/
 dist/
+.tmp/
 push_banana.sh
 AGENT_CODING.md
 CONTEXT.md

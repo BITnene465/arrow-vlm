@@ -30,8 +30,8 @@ def parse_args() -> argparse.Namespace:
             "initialized from the stage-1 checkpoint."
         )
     )
-    parser.add_argument("--stage1-config", default="configs/train_sync_posttrain.yaml")
-    parser.add_argument("--stage2-config", default="configs/train_full_ft.yaml")
+    parser.add_argument("--stage1-config", default="configs/train/train_sync_posttrain.yaml")
+    parser.add_argument("--stage2-config", default="configs/train/train_full_ft.yaml")
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--stage1-freeze-vision-tower", type=_parse_bool_flag, default=None)
     parser.add_argument("--stage2-freeze-vision-tower", type=_parse_bool_flag, default=None)

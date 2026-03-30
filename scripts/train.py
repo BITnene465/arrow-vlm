@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import argparse
 import math
+from collections.abc import Iterator
 
 import torch
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DataLoader, DistributedSampler, Sampler
 
 from vlm_det.config import apply_run_id, load_config, config_to_dict
 from vlm_det.data.collator import ArrowSFTCollator
@@ -13,6 +14,7 @@ from vlm_det.data.dataset import ArrowSFTDataset
 from vlm_det.eval.evaluator import ArrowEvaluator
 from vlm_det.modeling.builder import build_model_tokenizer_processor
 from vlm_det.protocol.codec import ArrowCodec
+from vlm_det.protocol.grounding_codec import GroundingCodec
 from vlm_det.train.optim import build_optimizer, build_scheduler
 from vlm_det.train.trainer import ArrowTrainer
 from vlm_det.utils.distributed import barrier, cleanup_distributed, init_distributed, seed_everything
@@ -56,6 +58,68 @@ def _build_dataloader(dataset, collator, batch_size, num_workers, pin_memory, pe
     )
 
 
+class _SortedBatchSampler(Sampler[list[int]]):
+    def __init__(
+        self,
+        indices: list[int],
+        batch_size: int,
+        *,
+        world_size: int = 1,
+        rank: int = 0,
+    ) -> None:
+        self.batch_size = max(int(batch_size), 1)
+        self.indices = list(indices)[int(rank) :: max(int(world_size), 1)]
+
+    def __iter__(self) -> Iterator[list[int]]:
+        for start in range(0, len(self.indices), self.batch_size):
+            yield self.indices[start : start + self.batch_size]
+
+    def __len__(self) -> int:
+        return math.ceil(len(self.indices) / self.batch_size)
+
+
+def _build_val_dataloader(
+    dataset,
+    collator,
+    batch_size,
+    num_workers,
+    pin_memory,
+    persistent_workers,
+    distributed,
+    world_size,
+    rank,
+    tokenizer,
+    bucket_by_target_length: bool,
+):
+    if not bucket_by_target_length:
+        return _build_dataloader(
+            dataset,
+            collator,
+            batch_size,
+            num_workers,
+            pin_memory,
+            persistent_workers,
+            distributed,
+            shuffle=False,
+        )
+    target_lengths = dataset.get_target_token_lengths(tokenizer)
+    sorted_indices = [index for index, _length in sorted(enumerate(target_lengths), key=lambda item: item[1])]
+    batch_sampler = _SortedBatchSampler(
+        sorted_indices,
+        batch_size,
+        world_size=world_size if distributed else 1,
+        rank=rank if distributed else 0,
+    )
+    return DataLoader(
+        dataset,
+        batch_sampler=batch_sampler,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=persistent_workers if num_workers > 0 else False,
+        collate_fn=collator,
+    )
+
+
 def main() -> None:
     args = parse_args()
     print("[startup] loading config...", flush=True)
@@ -86,7 +150,10 @@ def main() -> None:
     print("[startup] building model, tokenizer, and processor...", flush=True)
     build_artifacts = build_model_tokenizer_processor(config)
     print("[startup] building codec and collator...", flush=True)
-    codec = ArrowCodec(num_bins=config.tokenizer.num_bins)
+    if config.task.type == "grounding":
+        codec = GroundingCodec(num_bins=config.tokenizer.num_bins)
+    else:
+        codec = ArrowCodec(num_bins=config.tokenizer.num_bins)
     train_collator = ArrowSFTCollator(
         processor=build_artifacts.processor,
         tokenizer=build_artifacts.tokenizer,
@@ -110,12 +177,16 @@ def main() -> None:
         codec=codec,
         system_prompt=config.prompt.system_prompt,
         user_prompt=config.prompt.user_prompt,
+        system_prompt_template=config.prompt.system_prompt_template,
+        user_prompt_template=config.prompt.user_prompt_template,
     )
     val_dataset = ArrowSFTDataset(
         jsonl_path=config.data.val_path,
         codec=codec,
         system_prompt=config.prompt.system_prompt,
         user_prompt=config.prompt.user_prompt,
+        system_prompt_template=config.prompt.system_prompt_template,
+        user_prompt_template=config.prompt.user_prompt_template,
     )
     print("[startup] building dataloaders...", flush=True)
     train_loader = _build_dataloader(
@@ -128,7 +199,7 @@ def main() -> None:
         dist_ctx.distributed,
         shuffle=True,
     )
-    val_loader = _build_dataloader(
+    val_loader = _build_val_dataloader(
         val_dataset,
         val_collator,
         config.eval.per_device_batch_size,
@@ -136,7 +207,10 @@ def main() -> None:
         config.data.pin_memory,
         config.data.persistent_workers,
         dist_ctx.distributed,
-        shuffle=False,
+        dist_ctx.world_size,
+        dist_ctx.rank,
+        build_artifacts.tokenizer,
+        config.eval.bucket_by_target_length,
     )
 
     total_steps_per_epoch = math.ceil(

@@ -61,6 +61,31 @@ def _trainable_summary(model: torch.nn.Module) -> dict[str, int]:
     return {"trainable_params": trainable, "total_params": total}
 
 
+def _collect_lora_target_module_names(
+    model: torch.nn.Module,
+    *,
+    include_name_substrings: list[str],
+    exclude_name_substrings: list[str] | None,
+    suffixes: list[str],
+) -> list[str]:
+    collected: list[str] = []
+    exclude_name_substrings = exclude_name_substrings or []
+    for name, module in model.named_modules():
+        if not name:
+            continue
+        if not isinstance(module, torch.nn.Linear):
+            continue
+        lowered = name.lower()
+        if include_name_substrings and not any(substring in lowered for substring in include_name_substrings):
+            continue
+        if exclude_name_substrings and any(substring in lowered for substring in exclude_name_substrings):
+            continue
+        if suffixes and not any(name.endswith(suffix) for suffix in suffixes):
+            continue
+        collected.append(name)
+    return sorted(set(collected))
+
+
 def _resolve_model_source(config: ExperimentRuntimeConfig) -> str:
     local_path = Path(config.model.model_name_or_path)
     if local_path.exists():
@@ -177,12 +202,47 @@ def build_model_tokenizer_processor(config: ExperimentRuntimeConfig) -> BuildArt
         _freeze_all_parameters(model)
         if not config.lora.enabled:
             raise ValueError("finetune.mode='lora' requires lora.enabled=true.")
+        target_modules = list(config.lora.lang_target_modules)
+        if not config.model.freeze_vision_tower:
+            vis_target_modules = _collect_lora_target_module_names(
+                model,
+                include_name_substrings=config.model.vision_name_substrings,
+                exclude_name_substrings=config.model.projector_name_substrings,
+                suffixes=config.lora.vis_target_modules,
+            )
+            if not vis_target_modules:
+                raise ValueError(
+                    "freeze_vision_tower=false was requested in LoRA mode, but no visual target modules were found. "
+                    "Check model.vision_name_substrings and lora.vis_target_modules."
+                )
+            target_modules.extend(vis_target_modules)
+            print(
+                f"[builder] enabling LoRA on {len(vis_target_modules)} visual modules.",
+                flush=True,
+            )
+        if config.model.train_projector:
+            proj_target_modules = _collect_lora_target_module_names(
+                model,
+                include_name_substrings=config.model.projector_name_substrings,
+                exclude_name_substrings=None,
+                suffixes=config.lora.proj_target_modules,
+            )
+            if not proj_target_modules:
+                raise ValueError(
+                    "train_projector=true was requested in LoRA mode, but no projector target modules were found. "
+                    "Check model.projector_name_substrings and lora.proj_target_modules."
+                )
+            target_modules.extend(proj_target_modules)
+            print(
+                f"[builder] enabling LoRA on {len(proj_target_modules)} projector modules.",
+                flush=True,
+            )
         lora_config = LoraConfig(
             r=config.lora.r,
             lora_alpha=config.lora.alpha,
             lora_dropout=config.lora.dropout,
             bias=config.lora.bias,
-            target_modules=config.lora.target_modules,
+            target_modules=sorted(set(target_modules)),
             task_type=TaskType.CAUSAL_LM,
         )
         model = get_peft_model(model, lora_config)
@@ -191,8 +251,6 @@ def build_model_tokenizer_processor(config: ExperimentRuntimeConfig) -> BuildArt
 
     if config.model.freeze_vision_tower:
         _set_requires_grad_by_name(model, config.model.vision_name_substrings, False)
-    if config.finetune.mode == "lora" and config.model.train_projector:
-        _set_requires_grad_by_name(model, config.model.projector_name_substrings, True)
 
     # embedding层 和 LM Head 需要训练，否则不会有效果
     input_embeddings = model.get_input_embeddings()

@@ -10,7 +10,7 @@ model:
   trust_remote_code: true
   attn_implementation: flash_attention_2
   freeze_vision_tower: true
-  train_projector: false
+  train_projector: true
   vision_name_substrings:
     - visual
   projector_name_substrings:
@@ -57,7 +57,8 @@ lora:
   alpha: 32
   dropout: 0.05
   bias: none
-  target_modules:
+  # Language tower LoRA targets.
+  lang_target_modules:
     - q_proj
     - k_proj
     - v_proj
@@ -65,6 +66,14 @@ lora:
     - gate_proj
     - up_proj
     - down_proj
+  # Visual tower LoRA targets; only used when freeze_vision_tower=false.
+  vis_target_modules:
+    - attn.qkv
+    - attn.proj
+    - mlp.linear_fc1
+    - mlp.linear_fc2
+  # Projector LoRA targets; empty means all linear layers matched by projector_name_substrings.
+  proj_target_modules: []
 
 train:
   epochs: 3
@@ -90,7 +99,7 @@ train:
   find_unused_parameters: false
 
 eval:
-  per_device_batch_size: 8
+  per_device_batch_size: 16
   max_new_tokens: 2048
   num_beams: 1
   do_sample: false

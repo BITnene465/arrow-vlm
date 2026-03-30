@@ -155,6 +155,92 @@ For real LabelMe data, rectangle classes are mapped as:
 
 The JSONL records are then encoded into the normalized JSON grounding target during dataset loading.
 
+## Two-Stage Data Preparation
+
+Two-stage experiments derive two datasets from the processed annotations:
+
+- `stage1`: mixed full-image + tile supervision
+  - original full-image samples
+  - ratio-based multi-scale sliding-window samples
+  - density-driven crop samples
+  - grounding target: `label + bbox`
+  - prompt style aligned with the Qwen3-VL grounding cookbook: short instruction + relative coordinates
+- `stage2`: target-conditioned crop supervision
+  - crop image
+  - main-arrow keypoint skeleton target
+  - target format: `{"keypoints_2d":[[x0,y0],[x1,y1],...]}`
+
+Prepare Stage1:
+
+```bash
+python scripts/prepare_stage1_data.py \
+  --input-dir data/processed \
+  --output-dir data/two_stage \
+  --num-workers 8 \
+  --stage1-include-full-image \
+  --stage1-tile-size-ratios 0.35,0.5 \
+  --stage1-min-tile-size 512 \
+  --stage1-max-tile-size 1280 \
+  --stage1-density-min-instances 5 \
+  --stage1-density-max-instances 30 \
+  --stage1-dedup-iou-threshold 0.9
+```
+
+Prepare Stage2:
+
+```bash
+python scripts/prepare_stage2_data.py \
+  --input-dir data/processed \
+  --output-dir data/two_stage \
+  --padding-ratio 0.3 \
+  --num-workers 8 \
+  --stage2-aug-ratio 0.0
+```
+
+This writes:
+
+```text
+data/two_stage/
+  stage1/
+    train.jsonl
+    val.jsonl
+  stage2/
+    train.jsonl
+    val.jsonl
+    images/
+      train/
+      val/
+  reports/
+    prepare_stage1_report.json
+    prepare_stage2_report.json
+```
+
+Stage1 tile sizing is now ratio-driven:
+
+- crop sizes are resolved from image short-side ratios
+- `stage1_min_tile_size` / `stage1_max_tile_size` clamp the resolved pixel size
+- an instance is kept in a tile only when its bbox is fully enclosed by that tile
+- any tile that partially intersects a bbox is discarded instead of becoming a training sample
+- near-duplicate crops with the same instance set are removed using `stage1_dedup_iou_threshold`
+
+Stage 2 uses crop-local coordinates. For every target instance:
+
+- the crop is centered on the target bbox
+- default padding ratio is `0.3`
+- out-of-bound crop area is padded with black pixels
+- training targets are reprojected into the crop-local `[0,999]` coordinate system
+- stage2 JSONL stores structured `condition` fields, and the current prompt explicitly injects crop-local `label + bbox_2d`
+- stage2 target text is a JSON object: `{"keypoints_2d":[[x0,y0],[x1,y1],...]}`
+- stage2 does not add noisy hint samples by default; set `--stage2-aug-ratio 0.3` if you want about 30% of train instances to receive one extra noisy sample
+- stage2 noisy augmentation only jitters the bbox crop condition; there is no endpoint jitter in the current formulation
+- current stage2 jitter defaults are conservative:
+  - `bbox_center_jitter_ratio = 0.03`
+  - `bbox_scale_jitter_ratio = 0.05`
+
+More detailed usage is documented in:
+
+- [docs/data_prepare.md](/home/tanjingyuan/code/arrow-vlm/docs/data_prepare.md)
+
 ## Synthetic Post-Training Data
 
 Synthetic data generation lives under:
@@ -185,14 +271,14 @@ instance-order rule:
 ### Single-GPU LoRA
 
 ```bash
-python scripts/train.py --config configs/train_lora.yaml
+python scripts/train.py --config configs/train/train_lora.yaml
 ```
 
 Add a run id to make the output directory and W&B run traceable:
 
 ```bash
 python scripts/train.py \
-  --config configs/train_lora.yaml \
+  --config configs/train/train_lora.yaml \
   --run-id 20260325-exp01
 ```
 
@@ -205,7 +291,7 @@ Override the vision-tower freezing behavior for one run:
 
 ```bash
 python scripts/train.py \
-  --config configs/train_full_ft.yaml \
+  --config configs/train/train_full_ft.yaml \
   --run-id 20260325-exp01 \
   --freeze-vision-tower false
 ```
@@ -214,7 +300,7 @@ Gradient checkpointing is enabled by default. Override it explicitly if you want
 
 ```bash
 python scripts/train.py \
-  --config configs/train_full_ft.yaml \
+  --config configs/train/train_full_ft.yaml \
   --run-id 20260325-exp01 \
   --gradient-checkpointing false
 ```
@@ -222,13 +308,13 @@ python scripts/train.py \
 ### Single-GPU Full Fine-Tuning
 
 ```bash
-python scripts/train.py --config configs/train_full_ft.yaml
+python scripts/train.py --config configs/train/train_full_ft.yaml
 ```
 
 ### Single-GPU Synthetic Post-Training
 
 ```bash
-python scripts/train.py --config configs/train_sync_posttrain.yaml
+python scripts/train.py --config configs/train/train_sync_posttrain.yaml
 ```
 
 ### Multi-GPU
@@ -236,13 +322,13 @@ python scripts/train.py --config configs/train_sync_posttrain.yaml
 LoRA:
 
 ```bash
-torchrun --nproc_per_node=2 scripts/train.py --config configs/train_lora.yaml
+torchrun --nproc_per_node=2 scripts/train.py --config configs/train/train_lora.yaml
 ```
 
 Full FT:
 
 ```bash
-torchrun --nproc_per_node=2 scripts/train.py --config configs/train_full_ft.yaml
+torchrun --nproc_per_node=2 scripts/train.py --config configs/train/train_full_ft.yaml
 ```
 
 ### Stage-2 SFT From An Earlier Checkpoint
@@ -252,11 +338,115 @@ weights without restoring optimizer, scheduler, RNG, or global step:
 
 ```bash
 python scripts/train.py \
-  --config configs/train_full_ft.yaml \
+  --config configs/train/train_full_ft.yaml \
   --init-from outputs/qwen3vl-post/2b/checkpoints/best
 ```
 
 Use `--resume-from` only when you want to continue the same interrupted run.
+
+### Two-Stage LoRA Training
+
+Stage 1, 2B:
+
+```bash
+python scripts/train.py --config configs/train/train_stage1_lora.yaml
+```
+
+Stage 1, 4B:
+
+```bash
+python scripts/train.py --config configs/train/train_stage1_lora_4b.yaml
+```
+
+Stage 2, 2B:
+
+```bash
+python scripts/train.py --config configs/train/train_stage2_lora.yaml
+```
+
+Stage 2, 4B:
+
+```bash
+python scripts/train.py --config configs/train/train_stage2_lora_4b.yaml
+```
+
+Stage 2 records carry structured `condition` fields plus `target_text`. The
+final user prompt is rendered at training time from
+`prompt.user_prompt_template`, so the normal `scripts/train.py` entrypoint can
+still be reused without baking full prompt strings into every sample.
+
+### LoRA Target Groups
+
+LoRA configs now split target modules into three groups:
+
+- `lang_target_modules`: language tower LoRA targets such as
+  `q_proj/k_proj/v_proj/o_proj/gate_proj/up_proj/down_proj`
+- `vis_target_modules`: visual tower LoRA targets such as
+  `attn.qkv/attn.proj/mlp.linear_fc1/mlp.linear_fc2`
+- `proj_target_modules`: projector LoRA targets; an empty list means "all
+  linear layers matched by `projector_name_substrings`"
+
+Behavior:
+
+- `freeze_vision_tower: true`: no visual-tower LoRA is attached
+- `freeze_vision_tower: false`: visual-tower LoRA is attached on
+  `vis_target_modules`
+- `train_projector: true` in LoRA mode: projector LoRA is attached on
+  `proj_target_modules`, rather than fully unfreezing projector weights
+
+## Two-Stage Inference
+
+Run two-stage inference with:
+
+```bash
+python scripts/infer_two_stage.py \
+  --config configs/infer/infer_two_stage.yaml \
+  --stage1-checkpoint outputs/qwen3vl-s1-lora/4b/checkpoints/best \
+  --stage2-checkpoint outputs/qwen3vl-s2-lora/4b/checkpoints/best \
+  --image path/to/example.png \
+  --output-dir outputs/two_stage_demo
+```
+
+Current two-stage flow:
+
+1. Stage 1 grounding predicts `label + bbox` using mixed proposals:
+   - full image
+   - ratio-driven multi-scale tiles
+2. Stage 1 proposals are merged with `label + IoU` deduplication.
+3. Stage 2 crops each merged proposal and predicts the main arrow skeleton, conditioned on crop-local `label + bbox_2d`.
+4. Omitting `--stage2-checkpoint` keeps the flow in Stage1-only inspection mode.
+
+`infer_two_stage.py` now exposes a Stage1 mixed-proposal toggle:
+
+- default: enabled
+- CLI: `--stage1-mixed-proposals` / `--no-stage1-mixed-proposals`
+- demo: `Enable Stage1 Mixed Proposals`
+- final predictions now include `stage2_status`:
+  - `success`
+  - `failed`
+  Failed Stage2 boxes keep the Stage1 bbox and are rendered with a gray box plus `[S2 fail]`.
+
+## Two-Stage Demo
+
+Launch the two-stage Gradio app with:
+
+```bash
+python app/demo_two_stage.py \
+  --config configs/infer/infer_two_stage.yaml \
+  --stage1-checkpoint outputs/qwen3vl-s1-lora/4b/checkpoints/best
+```
+
+`demo_two_stage.py` 固定展示三张图：
+
+- 输入图
+- Stage1 Overlay
+- Stage2 / Final Overlay
+
+如果不提供 `--stage2-checkpoint`，页面会进入 Stage1-only 模式：
+
+- 状态区会明确提示未加载 Stage2
+- 第二张图显示 Stage1 可视化
+- 第三张图留空
 
 ### Two-Stage Training Launcher
 
@@ -268,8 +458,8 @@ python scripts/train_two_stage.py \
   --stage1-freeze-vision-tower false \
   --stage2-freeze-vision-tower true \
   --stage2-gradient-checkpointing true \
-  --stage1-config configs/train_sync_posttrain.yaml \
-  --stage2-config configs/train_full_ft.yaml
+  --stage1-config configs/train/train_sync_posttrain.yaml \
+  --stage2-config configs/train/train_full_ft.yaml
 ```
 
 Use LoRA for stage 2 if needed:
@@ -277,8 +467,8 @@ Use LoRA for stage 2 if needed:
 ```bash
 python scripts/train_two_stage.py \
   --run-id 20260325-exp01 \
-  --stage1-config configs/train_sync_posttrain.yaml \
-  --stage2-config configs/train_lora.yaml
+  --stage1-config configs/train/train_sync_posttrain.yaml \
+  --stage2-config configs/train/train_lora.yaml
 ```
 
 Preview commands without starting training:
@@ -318,16 +508,20 @@ The default prompt asks the model to:
 
 ## Inference
 
-Create a local `.env` from the template and fill at least the checkpoint path:
+One-stage inference uses an infer config instead of a training YAML.
+
+Create a local `.env` only if you want `CHECKPOINT_PATH` fallback:
 
 ```bash
 cp .env.example .env
 ```
 
-The inference CLI reads `.env` directly and does not require a training YAML:
+Run inference with:
 
 ```bash
 python scripts/infer.py \
+  --config configs/infer/infer_one_stage.yaml \
+  --checkpoint outputs/your_experiment/checkpoints/best \
   --max-new-tokens 4096 \
   --image /path/to/figure.jpg
 ```
@@ -337,13 +531,11 @@ This saves:
 - `*.prediction.json`
 - `*.raw.txt`
 
-if `INFER_OUTPUT_DIR` is set in `.env`, or if you pass `--output-dir`.
-
-Override the checkpoint or env file explicitly when needed:
+or let the checkpoint fall back to `CHECKPOINT_PATH` in `.env`:
 
 ```bash
 python scripts/infer.py \
-  --checkpoint outputs/your_experiment/checkpoints/best \
+  --config configs/infer/infer_one_stage.yaml \
   --env-file /path/to/.env \
   --max-new-tokens 4096 \
   --image /path/to/figure.jpg \
@@ -354,45 +546,30 @@ The CLI also prints the raw decoded model text to stdout so you can inspect stri
 
 ## App
 
-Launch the Gradio app with the same `.env` settings:
+Launch the one-stage Gradio app with the infer config:
 
 ```bash
-python app/demo.py
+python app/demo.py \
+  --config configs/infer/infer_one_stage.yaml \
+  --checkpoint outputs/your_experiment/checkpoints/best
 ```
 
 or override `max_new_tokens` for the whole app session:
 
 ```bash
-python app/demo.py --max-new-tokens 4096
+python app/demo.py \
+  --config configs/infer/infer_one_stage.yaml \
+  --checkpoint outputs/your_experiment/checkpoints/best \
+  --max-new-tokens 4096
 ```
 
-Useful inference/app env vars:
+Inference configs only store prompt/template and inference-time settings.
+They do not store checkpoint paths or base-model paths.
 
-- `CHECKPOINT_PATH`
-- `INFER_OUTPUT_DIR`
-- `INFER_DEVICE`
-- `APP_HOST`
-- `APP_PORT`
-- `APP_SHARE`
+- one-stage infer config: `configs/infer/infer_one_stage.yaml`
+- two-stage infer config: `configs/infer/infer_two_stage.yaml`
 
-Optional overrides only when needed:
-
-- `MODEL_NAME_OR_PATH`
-- `MODEL_MIN_PIXELS`
-- `MODEL_MAX_PIXELS`
-- `SYSTEM_PROMPT`
-- `USER_PROMPT`
-- `INFER_MAX_NEW_TOKENS`
-- `INFER_NUM_BEAMS`
-- `INFER_DO_SAMPLE`
-- `INFER_USE_CACHE`
-- `INFER_TEMPERATURE`
-- `INFER_TOP_P`
-- `INFER_TOP_K`
-
-`infer.py` and `app/demo.py` share the same environment-driven loader. They fall back to `checkpoint/meta.json` for structure-sensitive settings such as `finetune.mode`, LoRA parameters, prompt defaults, and eval defaults, so you normally do not need a training config file during inference.
-
-Training configuration is separate: `scripts/train.py` only reads YAML config files and does not consume `.env`.
+Training configuration is separate: `scripts/train.py` still only reads training YAML files.
 
 ## Evaluation and Debugging
 
@@ -400,7 +577,7 @@ To inspect a few decoded validation samples:
 
 ```bash
 python scripts/debug_eval.py \
-  --config configs/train_sync_posttrain.yaml \
+  --config configs/train/train_sync_posttrain.yaml \
   --checkpoint outputs/your_experiment/checkpoints/last \
   --split val \
   --num-samples 1 \

@@ -1,72 +1,88 @@
 from __future__ import annotations
 
 import os
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import yaml
 from dotenv import load_dotenv
 
-from vlm_det.config import ExperimentRuntimeConfig, _deep_merge, _from_dict
+from vlm_det.config import ExperimentRuntimeConfig, _from_dict
 from vlm_det.utils.checkpoint import load_checkpoint_meta
 
 
-def _parse_bool(value: str) -> bool:
-    normalized = value.strip().lower()
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off"}:
-        return False
-    raise ValueError(f"Expected a boolean value, got: {value!r}")
-
-
-def _set_nested_value(payload: dict[str, Any], dotted_path: str, value: Any) -> None:
-    parts = dotted_path.split(".")
-    current = payload
-    for part in parts[:-1]:
-        current = current.setdefault(part, {})
-    current[parts[-1]] = value
-
-
-INFERENCE_ENV_OVERRIDE_MAP: dict[str, tuple[str | list[str], callable]] = {
-    "CHECKPOINT_PATH": ("checkpoint_path", str),
-    "MODEL_NAME_OR_PATH": (
-        ["runtime.model.model_name_or_path", "runtime.model.remote_model_name_or_path"],
-        str,
-    ),
-    "MODEL_MIN_PIXELS": ("runtime.model.min_pixels", int),
-    "MODEL_MAX_PIXELS": ("runtime.model.max_pixels", int),
-    "SYSTEM_PROMPT": ("runtime.prompt.system_prompt", str),
-    "USER_PROMPT": ("runtime.prompt.user_prompt", str),
-    "INFER_MAX_NEW_TOKENS": ("runtime.eval.max_new_tokens", int),
-    "INFER_NUM_BEAMS": ("runtime.eval.num_beams", int),
-    "INFER_DO_SAMPLE": ("runtime.eval.do_sample", _parse_bool),
-    "INFER_USE_CACHE": ("runtime.eval.use_cache", _parse_bool),
-    "INFER_TEMPERATURE": ("runtime.eval.temperature", float),
-    "INFER_TOP_P": ("runtime.eval.top_p", float),
-    "INFER_TOP_K": ("runtime.eval.top_k", int),
-    "INFER_DEVICE": ("device", str),
-    "INFER_OUTPUT_DIR": ("output_dir", str),
-    "APP_HOST": ("app.host", str),
-    "APP_PORT": ("app.port", int),
-    "APP_SHARE": ("app.share", _parse_bool),
-}
+@dataclass
+class InferModelConfig:
+    min_pixels: int | None = None
+    max_pixels: int | None = None
 
 
 @dataclass
-class InferenceAppConfig:
+class InferPromptConfig:
+    system_prompt: str | None = None
+    system_prompt_template: str | None = None
+    user_prompt: str | None = None
+    user_prompt_template: str | None = None
+
+
+@dataclass
+class InferEvalConfig:
+    max_new_tokens: int | None = None
+    num_beams: int | None = None
+    do_sample: bool | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+    top_k: int | None = None
+    use_cache: bool | None = None
+
+
+@dataclass
+class InferAppConfig:
     host: str = "127.0.0.1"
     port: int = 7860
     share: bool = False
 
 
 @dataclass
+class OneStageInferenceConfig:
+    model: InferModelConfig = field(default_factory=InferModelConfig)
+    prompt: InferPromptConfig = field(default_factory=InferPromptConfig)
+    eval: InferEvalConfig = field(default_factory=InferEvalConfig)
+    app: InferAppConfig = field(default_factory=InferAppConfig)
+    output_dir: str | None = None
+
+
+@dataclass
+class TwoStageStageInferenceConfig:
+    model: InferModelConfig = field(default_factory=InferModelConfig)
+    prompt: InferPromptConfig = field(default_factory=InferPromptConfig)
+    eval: InferEvalConfig = field(default_factory=InferEvalConfig)
+    batch_size: int = 1
+    include_full_image: bool = True
+    tile_size_ratios: list[float] = field(default_factory=list)
+    min_tile_size: int = 512
+    max_tile_size: int = 1280
+    tile_stride_ratio: float = 0.75
+    proposal_dedup_iou_threshold: float = 0.65
+
+
+@dataclass
+class TwoStageInferenceConfig:
+    stage1: TwoStageStageInferenceConfig = field(default_factory=TwoStageStageInferenceConfig)
+    stage2: TwoStageStageInferenceConfig = field(default_factory=TwoStageStageInferenceConfig)
+    app: InferAppConfig = field(default_factory=InferAppConfig)
+    output_dir: str | None = None
+    padding_ratio: float = 0.5
+
+
+@dataclass
 class InferenceSettings:
-    runtime: ExperimentRuntimeConfig = field(default_factory=ExperimentRuntimeConfig)
-    checkpoint_path: str = ""
+    runtime: ExperimentRuntimeConfig
+    checkpoint_path: str
     device: str | None = None
     output_dir: str | None = None
-    app: InferenceAppConfig = field(default_factory=InferenceAppConfig)
+    app: InferAppConfig = field(default_factory=InferAppConfig)
 
 
 def _find_dotenv_path(explicit_env_file: str | Path | None = None) -> Path | None:
@@ -84,69 +100,121 @@ def _find_dotenv_path(explicit_env_file: str | Path | None = None) -> Path | Non
     return None
 
 
-def _apply_env_overrides(payload: dict[str, Any]) -> dict[str, Any]:
-    for env_name, (target_paths, caster) in INFERENCE_ENV_OVERRIDE_MAP.items():
-        raw_value = os.getenv(env_name)
-        if raw_value is None or raw_value == "":
-            continue
-        resolved_value = caster(raw_value)
-        if isinstance(target_paths, str):
-            target_paths = [target_paths]
-        for target_path in target_paths:
-            _set_nested_value(payload, target_path, resolved_value)
-    return payload
+def _load_yaml_payload(path: str | Path | None) -> dict[str, Any]:
+    if path is None:
+        return {}
+    config_path = Path(path)
+    with config_path.open("r", encoding="utf-8") as handle:
+        return yaml.safe_load(handle) or {}
+
+
+def load_one_stage_inference_config(path: str | Path | None) -> OneStageInferenceConfig:
+    return _from_dict(OneStageInferenceConfig, _load_yaml_payload(path))
+
+
+def load_two_stage_inference_config(path: str | Path | None) -> TwoStageInferenceConfig:
+    return _from_dict(TwoStageInferenceConfig, _load_yaml_payload(path))
 
 
 def _extract_runtime_payload_from_checkpoint_meta(checkpoint_path: str | Path) -> dict[str, Any]:
     meta = load_checkpoint_meta(checkpoint_path)
     checkpoint_config = meta.get("config", {})
     runtime_payload: dict[str, Any] = {}
-    for section_name in ("model", "tokenizer", "prompt", "finetune", "lora", "eval", "train"):
+    for section_name in ("model", "tokenizer", "task", "prompt", "finetune", "lora", "eval", "train"):
         section_value = checkpoint_config.get(section_name)
         if isinstance(section_value, dict):
             runtime_payload[section_name] = section_value
     return runtime_payload
 
 
+def _build_runtime_from_checkpoint(checkpoint_path: str | Path) -> ExperimentRuntimeConfig:
+    runtime = _from_dict(ExperimentRuntimeConfig, _extract_runtime_payload_from_checkpoint_meta(checkpoint_path))
+    runtime.train.gradient_checkpointing = False
+    return runtime
+
+
+def _apply_model_overrides(runtime: ExperimentRuntimeConfig, model_cfg: InferModelConfig) -> None:
+    if model_cfg.min_pixels is not None:
+        runtime.model.min_pixels = model_cfg.min_pixels
+    if model_cfg.max_pixels is not None:
+        runtime.model.max_pixels = model_cfg.max_pixels
+
+
+def _apply_prompt_overrides(runtime: ExperimentRuntimeConfig, prompt_cfg: InferPromptConfig) -> None:
+    if prompt_cfg.system_prompt is not None:
+        runtime.prompt.system_prompt = prompt_cfg.system_prompt
+    if prompt_cfg.system_prompt_template is not None:
+        runtime.prompt.system_prompt_template = prompt_cfg.system_prompt_template
+    if prompt_cfg.user_prompt is not None:
+        runtime.prompt.user_prompt = prompt_cfg.user_prompt
+    if prompt_cfg.user_prompt_template is not None:
+        runtime.prompt.user_prompt_template = prompt_cfg.user_prompt_template
+
+
+def _apply_eval_overrides(runtime: ExperimentRuntimeConfig, eval_cfg: InferEvalConfig) -> None:
+    if eval_cfg.max_new_tokens is not None:
+        runtime.eval.max_new_tokens = eval_cfg.max_new_tokens
+    if eval_cfg.num_beams is not None:
+        runtime.eval.num_beams = eval_cfg.num_beams
+    if eval_cfg.do_sample is not None:
+        runtime.eval.do_sample = eval_cfg.do_sample
+    if eval_cfg.temperature is not None:
+        runtime.eval.temperature = eval_cfg.temperature
+    if eval_cfg.top_p is not None:
+        runtime.eval.top_p = eval_cfg.top_p
+    if eval_cfg.top_k is not None:
+        runtime.eval.top_k = eval_cfg.top_k
+    if eval_cfg.use_cache is not None:
+        runtime.eval.use_cache = eval_cfg.use_cache
+
+
+def build_runtime_from_one_stage_infer_config(
+    checkpoint_path: str | Path,
+    infer_config: OneStageInferenceConfig,
+) -> ExperimentRuntimeConfig:
+    runtime = _build_runtime_from_checkpoint(checkpoint_path)
+    _apply_model_overrides(runtime, infer_config.model)
+    _apply_prompt_overrides(runtime, infer_config.prompt)
+    _apply_eval_overrides(runtime, infer_config.eval)
+    return runtime
+
+
+def build_runtime_from_two_stage_infer_config(
+    checkpoint_path: str | Path,
+    infer_config: TwoStageStageInferenceConfig,
+) -> ExperimentRuntimeConfig:
+    runtime = _build_runtime_from_checkpoint(checkpoint_path)
+    _apply_model_overrides(runtime, infer_config.model)
+    _apply_prompt_overrides(runtime, infer_config.prompt)
+    _apply_eval_overrides(runtime, infer_config.eval)
+    return runtime
+
+
 def load_inference_settings(
     *,
-    checkpoint_path: str | Path | None = None,
+    checkpoint_path: str | Path | None,
+    config_path: str | Path | None = None,
+    infer_config: OneStageInferenceConfig | TwoStageStageInferenceConfig | None = None,
     env_file: str | Path | None = None,
 ) -> InferenceSettings:
     dotenv_path = _find_dotenv_path(env_file)
     if dotenv_path is not None:
         load_dotenv(dotenv_path=dotenv_path, override=False)
 
-    env_payload = _apply_env_overrides({})
-    resolved_checkpoint_path = checkpoint_path or env_payload.get("checkpoint_path")
+    resolved_checkpoint_path = checkpoint_path or os.getenv("CHECKPOINT_PATH")
     if not resolved_checkpoint_path:
         raise ValueError(
-            "Inference checkpoint path is required. Set `CHECKPOINT_PATH` in `.env` "
-            "or pass `checkpoint_path` explicitly."
+            "Inference checkpoint path is required. Pass --checkpoint or set CHECKPOINT_PATH in .env."
         )
 
-    runtime_payload = asdict(ExperimentRuntimeConfig())
-    runtime_payload = _deep_merge(
-        runtime_payload,
-        _extract_runtime_payload_from_checkpoint_meta(resolved_checkpoint_path),
-    )
-    runtime_payload = _deep_merge(runtime_payload, env_payload.get("runtime", {}))
-    runtime = _from_dict(ExperimentRuntimeConfig, runtime_payload)
-
-    # Inference should never inherit training-time activation checkpointing.
-    runtime.train.gradient_checkpointing = False
-
-    app_payload = env_payload.get("app", {})
-    app = InferenceAppConfig(
-        host=app_payload.get("host", InferenceAppConfig.host),
-        port=app_payload.get("port", InferenceAppConfig.port),
-        share=app_payload.get("share", InferenceAppConfig.share),
-    )
-
+    effective_infer_config = infer_config or load_one_stage_inference_config(config_path)
+    runtime = build_runtime_from_one_stage_infer_config(resolved_checkpoint_path, effective_infer_config)
+    output_dir = getattr(effective_infer_config, "output_dir", None)
+    app = getattr(effective_infer_config, "app", InferAppConfig())
     return InferenceSettings(
         runtime=runtime,
         checkpoint_path=str(resolved_checkpoint_path),
-        device=env_payload.get("device"),
-        output_dir=env_payload.get("output_dir"),
+        device=None,
+        output_dir=output_dir,
         app=app,
     )

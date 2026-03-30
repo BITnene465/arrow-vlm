@@ -57,11 +57,11 @@ python scripts/prepare_data.py \
 - 单阶段训练：`scripts/train.py`
 - 两阶段训练：`scripts/train_two_stage.py`
 - 当前主要配置：
-  - `configs/train_full_ft.yaml`
-  - `configs/train_full_ft_4b.yaml`
-  - `configs/train_lora.yaml`
-  - `configs/train_lora_4b.yaml`
-  - `configs/train_sync_posttrain.yaml`
+  - `configs/train/train_full_ft.yaml`
+  - `configs/train/train_full_ft_4b.yaml`
+  - `configs/train/train_lora.yaml`
+  - `configs/train/train_lora_4b.yaml`
+  - `configs/train/train_sync_posttrain.yaml`
 
 默认命名规则：
 
@@ -77,11 +77,66 @@ python scripts/prepare_data.py \
 ## 推理入口
 
 - CLI：`scripts/infer.py`
+- 两阶段 CLI：`scripts/infer_two_stage.py`
 - Demo：`app/demo.py`
-- 推理配置走 `.env` / 环境变量，不走训练 YAML
+- 两阶段 Demo：`app/demo_two_stage.py`
+- 推理配置走独立 infer config，不复用训练 YAML
+- one-stage infer config：`configs/infer/infer_one_stage.yaml`
+- two-stage infer config：`configs/infer/infer_two_stage.yaml`
 - demo 现在支持切换：
   - base model
   - checkpoint
+
+## 两阶段实验入口
+
+- Stage1 数据准备：`scripts/prepare_stage1_data.py`
+- Stage2 数据准备：`scripts/prepare_stage2_data.py`
+- Stage 1 训练配置：
+  - `configs/train/train_stage1_lora.yaml`
+  - `configs/train/train_stage1_lora_4b.yaml`
+- Stage 2 训练配置：
+  - `configs/train/train_stage2_lora.yaml`
+  - `configs/train/train_stage2_lora_4b.yaml`
+
+当前两阶段约定：
+
+- Stage 1：整图输出 `label + bbox`
+- Stage 1 grounding prompt 采用 Qwen3-VL 官方 grounding 风格：短自然语言指令 + 相对坐标 `[0,999]`
+- Stage 2：输入单目标 crop，并通过 crop-local `label + bbox_2d` 指定 main arrow，输出其 `keypoints_2d` 骨架
+- 推理阶段的 Stage 1 现在默认采用 mixed proposals：
+  - full image
+  - 按比例生成的多尺度 tile
+  - 之后按 `label + IoU` 做 proposal dedup
+- CLI / demo 都提供 Stage1 mixed proposal 开关，默认开启
+- Stage 2 的 target/prompt 坐标都必须是 crop-local `[0,999]`
+- Stage 2 prompt 采用配置模板渲染；当前 prompt 会显式注入 crop-local `label + bbox_2d`，数据记录仍保留 `condition` 以兼容现有链路
+- `demo_two_stage` 可在不提供 Stage 2 checkpoint 的情况下直接做 Stage 1 可视化检查
+- Stage 2 crop 默认 `padding_ratio = 0.3`
+- crop 超出原图边界时，黑边补齐
+- Stage1 现在支持三条线并行：
+  - 原始整图样本
+  - 按图像短边比例生成的多尺度滑窗样本
+  - 按箭头数量区间筛选的 density crop 样本
+- Stage1 的 crop 尺寸现在按图像短边比例计算，并用 `stage1_min_tile_size` / `stage1_max_tile_size` 做像素上下限兜底
+- Stage1 tile 中的实例必须满足 `bbox` 被 tile **完整包含**；如果某个 tile 与任意 bbox 只是部分相交，该 tile 直接丢弃
+- Stage1 数据准备会自动去掉“实例集合相同且 crop 高度重叠”的近重复样本，默认用 `stage1_dedup_iou_threshold=0.9`
+
+## 当前 LoRA 语义
+
+- `lang_target_modules`：语言塔 LoRA 挂载点
+- `vis_target_modules`：视觉塔 LoRA 挂载点
+- `proj_target_modules`：projector LoRA 挂载点
+
+当前约定：
+
+- `freeze_vision_tower: false` 且 `finetune.mode=lora` 时，不是视觉塔全量训练，而是给视觉塔匹配到的线性层挂 LoRA
+- 视觉塔当前默认 LoRA 挂点是：
+  - `attn.qkv`
+  - `attn.proj`
+  - `mlp.linear_fc1`
+  - `mlp.linear_fc2`
+- `train_projector: true` 且 `finetune.mode=lora` 时，不是 projector 全量训练，而是给 projector 匹配到的线性层挂 LoRA
+- `proj_target_modules: []` 表示 projector 下所有匹配到的线性层都可作为 LoRA 挂点
 
 ## 当前经验结论
 

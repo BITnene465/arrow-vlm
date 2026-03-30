@@ -45,6 +45,7 @@ class TokenizerConfig:
 @dataclass
 class PromptConfig:
     system_prompt: str = ""
+    system_prompt_template: str | None = None
     user_prompt: str = (
         "Detect all arrows and output only a JSON array, with no markdown and no extra text. "
         "Normalize every coordinate to an integer in [0,999]. "
@@ -54,6 +55,12 @@ class PromptConfig:
         "For double_arrow, keypoints[0] and keypoints[-1] are the two head tips. "
         "Each arrow must contain at least 2 points."
     )
+    user_prompt_template: str | None = None
+
+
+@dataclass
+class TaskConfig:
+    type: str = "arrow_structure"
 
 
 @dataclass
@@ -72,7 +79,7 @@ class LoraConfig:
     alpha: int = 32
     dropout: float = 0.05
     bias: str = "none"
-    target_modules: list[str] = field(
+    lang_target_modules: list[str] = field(
         default_factory=lambda: [
             "q_proj",
             "k_proj",
@@ -83,6 +90,15 @@ class LoraConfig:
             "down_proj",
         ]
     )
+    vis_target_modules: list[str] = field(
+        default_factory=lambda: [
+            "attn.qkv",
+            "attn.proj",
+            "mlp.linear_fc1",
+            "mlp.linear_fc2",
+        ]
+    )
+    proj_target_modules: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -118,6 +134,7 @@ class TrainConfig:
 @dataclass
 class EvalConfig:
     per_device_batch_size: int = 1
+    bucket_by_target_length: bool = True
     max_new_tokens: int = 8192
     num_beams: int = 1
     do_sample: bool = False
@@ -150,6 +167,7 @@ class ExperimentRuntimeConfig:
     experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     tokenizer: TokenizerConfig = field(default_factory=TokenizerConfig)
+    task: TaskConfig = field(default_factory=TaskConfig)
     prompt: PromptConfig = field(default_factory=PromptConfig)
     data: DataConfig = field(default_factory=DataConfig)
     finetune: FineTuneConfig = field(default_factory=FineTuneConfig)

@@ -23,6 +23,101 @@ class ValidationReport:
     errors: list[str]
 
 
+def extract_balanced_json(text: str) -> str | None:
+    for opener, closer in (("[", "]"), ("{", "}")):
+        payload = extract_balanced_json_with_delimiters(text, opener, closer)
+        if payload is not None:
+            return payload
+    return None
+
+
+def extract_balanced_json_with_delimiters(text: str, opener: str, closer: str) -> str | None:
+    start = text.find(opener)
+    if start < 0:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+            continue
+        if char == opener:
+            depth += 1
+        elif char == closer:
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+    return None
+
+
+def recover_truncated_json_array(text: str) -> str | None:
+    start = text.find("[")
+    if start < 0:
+        return None
+
+    items: list[Any] = []
+    in_string = False
+    escape = False
+    depth = 1
+    item_start = start + 1
+
+    for index in range(start + 1, len(text)):
+        char = text[index]
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+            continue
+        if char in "[{":
+            depth += 1
+            continue
+        if char in "]}":
+            depth -= 1
+            if depth == 0:
+                item_text = text[item_start:index].strip()
+                if item_text:
+                    try:
+                        items.append(json.loads(item_text))
+                    except json.JSONDecodeError:
+                        pass
+                return json.dumps(items, ensure_ascii=False, separators=(",", ":"))
+            continue
+        if char == "," and depth == 1:
+            item_text = text[item_start:index].strip()
+            if item_text:
+                try:
+                    items.append(json.loads(item_text))
+                except json.JSONDecodeError:
+                    pass
+            item_start = index + 1
+
+    tail_text = text[item_start:].strip()
+    if tail_text:
+        try:
+            items.append(json.loads(tail_text))
+        except json.JSONDecodeError:
+            pass
+    if not items:
+        return None
+    return json.dumps(items, ensure_ascii=False, separators=(",", ":"))
+
+
 class ArrowCodec:
     def __init__(self, num_bins: int = 1000) -> None:
         self.num_bins = num_bins
@@ -65,7 +160,23 @@ class ArrowCodec:
         *,
         strict: bool = False,
     ) -> dict[str, Any]:
-        payload = self._parse_json_payload(text, strict=strict)
+        parsed, _parse_meta = self.decode_with_meta(
+            text,
+            image_width=image_width,
+            image_height=image_height,
+            strict=strict,
+        )
+        return parsed
+
+    def decode_with_meta(
+        self,
+        text: str,
+        image_width: int,
+        image_height: int,
+        *,
+        strict: bool = False,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        payload, recovered_prefix = self._parse_json_payload(text, strict=strict)
         if isinstance(payload, dict):
             if strict:
                 raise ValueError("Strict decoded payload must be a JSON array.")
@@ -118,7 +229,7 @@ class ArrowCodec:
         report = self.validate_struct(annotation, strict=strict)
         if not report.valid:
             raise ValueError("; ".join(report.errors))
-        return annotation_to_dict(annotation)
+        return annotation_to_dict(annotation), {"recovered_prefix": recovered_prefix}
 
     def validate_struct(
         self,
@@ -206,13 +317,13 @@ class ArrowCodec:
         y_value = self._parse_coord(point_values[1], "y", strict=strict)
         return x_value, y_value
 
-    def _parse_json_payload(self, text: str, *, strict: bool = False) -> Any:
+    def _parse_json_payload(self, text: str, *, strict: bool = False) -> tuple[Any, bool]:
         stripped = text.strip()
         if not stripped:
             raise ValueError("Decoded text is empty.")
         if strict:
             try:
-                return json.loads(stripped)
+                return json.loads(stripped), False
             except json.JSONDecodeError as exc:
                 raise ValueError(
                     f"Strict JSON payload must occupy the entire decoded text: {exc.msg}."
@@ -220,40 +331,20 @@ class ArrowCodec:
         fenced = JSON_FENCE_PATTERN.search(stripped)
         if fenced is not None:
             stripped = fenced.group(1).strip()
-        payload_text = self._extract_balanced_json(stripped)
+        payload_text = None
+        recovered_prefix = False
+        if "[" in stripped:
+            payload_text = extract_balanced_json_with_delimiters(stripped, "[", "]")
+            if payload_text is None:
+                payload_text = recover_truncated_json_array(stripped)
+                recovered_prefix = payload_text is not None
+        if payload_text is None and "{" in stripped:
+            payload_text = extract_balanced_json_with_delimiters(stripped, "{", "}")
+        if payload_text is None:
+            payload_text = extract_balanced_json(stripped)
         if payload_text is None:
             raise ValueError("No JSON payload found in decoded text.")
         try:
-            return json.loads(payload_text)
+            return json.loads(payload_text), recovered_prefix
         except json.JSONDecodeError as exc:
             raise ValueError(f"Invalid JSON payload: {exc.msg}.") from exc
-
-    @staticmethod
-    def _extract_balanced_json(text: str) -> str | None:
-        for opener, closer in (("[", "]"), ("{", "}")):
-            start = text.find(opener)
-            if start < 0:
-                continue
-            depth = 0
-            in_string = False
-            escape = False
-            for index in range(start, len(text)):
-                char = text[index]
-                if in_string:
-                    if escape:
-                        escape = False
-                    elif char == "\\":
-                        escape = True
-                    elif char == '"':
-                        in_string = False
-                    continue
-                if char == '"':
-                    in_string = True
-                    continue
-                if char == opener:
-                    depth += 1
-                elif char == closer:
-                    depth -= 1
-                    if depth == 0:
-                        return text[start : index + 1]
-        return None
