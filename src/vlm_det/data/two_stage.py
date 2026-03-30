@@ -250,7 +250,8 @@ def _build_stage1_crop_record(
         crop_box=crop_box,
     )
     return {
-        "task_type": "two_stage_stage1_grounding",
+        "task_type": "grounding",
+        "domain_type": "arrow",
         "sample_id": sample_id,
         "source_sample_id": record["sample_id"],
         "source_type": source_type,
@@ -270,7 +271,8 @@ def _build_stage1_full_image_record(record: dict[str, Any]) -> dict[str, Any]:
     ]
     indexed_instances.sort(key=lambda item: grounding_instance_sort_key(item[0]))
     return {
-        "task_type": "two_stage_stage1_grounding",
+        "task_type": "grounding",
+        "domain_type": "arrow",
         "sample_id": record["sample_id"],
         "source_sample_id": record["sample_id"],
         "source_type": "full_image",
@@ -596,7 +598,8 @@ def _build_stage2_record(
     )
 
     return {
-        "task_type": "two_stage_stage2",
+        "task_type": "keypoint_sequence",
+        "domain_type": "arrow",
         "sample_id": f"{record['sample_id']}__inst_{target_index:04d}{sample_suffix}",
         "source_sample_id": record["sample_id"],
         "target_index": int(target_index),
@@ -606,7 +609,8 @@ def _build_stage2_record(
         "system_prompt": "",
         "target_text": _encode_stage2_target(local_full_keypoints_2d),
         "gt_struct": {
-            "task_type": "two_stage_stage2",
+            "task_type": "keypoint_sequence",
+            "domain_type": "arrow",
             "label": instance["label"],
             "keypoints": _round_keypoints(local_gt_keypoints),
             "keypoints_2d": local_full_keypoints_2d,

@@ -8,6 +8,7 @@ import torch
 from PIL import Image
 
 from vlm_det.config import ExperimentRuntimeConfig
+from vlm_det.core.registry import get_adapter
 from vlm_det.data.two_stage import (
     _bbox_iou,
     _build_sliding_crop_boxes,
@@ -22,7 +23,6 @@ from vlm_det.infer.config import (
 from vlm_det.infer.runner import ArrowInferenceRunner, _resolve_device
 from vlm_det.modeling.builder import BuildArtifacts, build_model_tokenizer_processor
 from vlm_det.prompting import build_chat_prompt, render_prompt_template, temporary_padding_side
-from vlm_det.protocol.keypoint_codec import KeypointSequenceCodec
 from vlm_det.utils.checkpoint import load_training_checkpoint
 from vlm_det.utils.distributed import reset_model_runtime_state, unwrap_model
 from vlm_det.utils.generation import (
@@ -36,7 +36,7 @@ from vlm_det.utils.generation import (
 class Stage2KeypointInferenceRunner:
     config: ExperimentRuntimeConfig
     artifacts: BuildArtifacts
-    codec: KeypointSequenceCodec
+    adapter: Any
     device: torch.device
     batch_size: int = 1
 
@@ -69,7 +69,7 @@ class Stage2KeypointInferenceRunner:
             generate_kwargs = build_generate_kwargs(
                 self.artifacts.tokenizer,
                 generation_config=getattr(raw_model, "generation_config", None),
-                num_bins=self.codec.num_bins,
+                num_bins=self.adapter.num_bins,
                 prompt_lengths=[input_context_length] * len(batch_requests),
                 max_new_tokens=max_new_tokens or self.config.eval.max_new_tokens,
                 num_beams=self.config.eval.num_beams,
@@ -100,7 +100,7 @@ class Stage2KeypointInferenceRunner:
                 lenient_recovered_prefix = False
                 strict_error: str | None = None
                 try:
-                    lenient_prediction, lenient_meta = self.codec.decode_with_meta(
+                    lenient_prediction, lenient_meta = self.adapter.decode_with_meta(
                         decoded,
                         image_width=width,
                         image_height=height,
@@ -111,7 +111,7 @@ class Stage2KeypointInferenceRunner:
 
                 if lenient_prediction is not None:
                     try:
-                        self.codec.decode(strict_text, image_width=width, image_height=height, strict=True)
+                        self.adapter.decode(strict_text, image_width=width, image_height=height, strict=True)
                     except Exception as exc:  # noqa: BLE001
                         strict_error = str(exc)
                 else:
@@ -581,7 +581,11 @@ def _load_stage2_runner(
     return Stage2KeypointInferenceRunner(
         config=config,
         artifacts=artifacts,
-        codec=KeypointSequenceCodec(num_bins=config.tokenizer.num_bins),
+        adapter=get_adapter(
+            task_type="keypoint_sequence",
+            domain_type="arrow",
+            num_bins=config.tokenizer.num_bins,
+        ),
         device=device,
         batch_size=max(int(getattr(infer_config, "batch_size", 1)), 1),
     )

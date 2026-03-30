@@ -240,6 +240,7 @@ Stage 2 uses crop-local coordinates. For every target instance:
 More detailed usage is documented in:
 
 - [docs/data_prepare.md](/home/tanjingyuan/code/arrow-vlm/docs/data_prepare.md)
+- [docs/task_domain_routing.md](/home/tanjingyuan/code/arrow-vlm/docs/task_domain_routing.md)
 
 ## Synthetic Post-Training Data
 

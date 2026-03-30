@@ -12,7 +12,6 @@ from vlm_det.config import load_config
 from vlm_det.data.collator import ArrowSFTCollator
 from vlm_det.data.dataset import ArrowSFTDataset
 from vlm_det.modeling.builder import build_model_tokenizer_processor
-from vlm_det.protocol.codec import ArrowCodec
 from vlm_det.utils.checkpoint import load_training_checkpoint
 from vlm_det.utils.distributed import reset_model_runtime_state, unwrap_model
 from vlm_det.utils.generation import build_generate_kwargs, trim_generated_ids_at_eos
@@ -30,11 +29,11 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _build_dataset(config, codec: ArrowCodec, split: str) -> ArrowSFTDataset:
+def _build_dataset(config, split: str) -> ArrowSFTDataset:
     jsonl_path = config.data.val_path if split == "val" else config.data.train_path
     return ArrowSFTDataset(
         jsonl_path=jsonl_path,
-        codec=codec,
+        num_bins=config.tokenizer.num_bins,
         system_prompt=config.prompt.system_prompt,
         user_prompt=config.prompt.user_prompt,
     )
@@ -60,8 +59,7 @@ def main() -> None:
     model = unwrap_model(artifacts.model)
     model.eval()
 
-    codec = ArrowCodec(num_bins=config.tokenizer.num_bins)
-    dataset = _build_dataset(config, codec, args.split)
+    dataset = _build_dataset(config, args.split)
     collator = ArrowSFTCollator(
         processor=artifacts.processor,
         tokenizer=artifacts.tokenizer,
@@ -107,7 +105,7 @@ def main() -> None:
         generate_kwargs = build_generate_kwargs(
             artifacts.tokenizer,
             generation_config=getattr(model, "generation_config", None),
-            num_bins=codec.num_bins,
+            num_bins=config.tokenizer.num_bins,
             prompt_lengths=[prompt_length],
             max_new_tokens=config.eval.max_new_tokens,
             num_beams=config.eval.num_beams,

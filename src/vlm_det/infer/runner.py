@@ -8,11 +8,10 @@ import torch
 from PIL import Image
 
 from vlm_det.config import ExperimentRuntimeConfig
+from vlm_det.core.registry import get_adapter
 from vlm_det.infer.config import InferenceSettings, OneStageInferenceConfig, load_inference_settings
 from vlm_det.modeling.builder import BuildArtifacts, build_model_tokenizer_processor
 from vlm_det.prompting import build_chat_prompt, temporary_padding_side
-from vlm_det.protocol.codec import ArrowCodec
-from vlm_det.protocol.grounding_codec import GroundingCodec
 from vlm_det.utils.checkpoint import load_training_checkpoint
 from vlm_det.utils.distributed import reset_model_runtime_state, unwrap_model
 from vlm_det.utils.generation import (
@@ -27,7 +26,7 @@ class ArrowInferenceRunner:
     settings: InferenceSettings
     config: ExperimentRuntimeConfig
     artifacts: BuildArtifacts
-    codec: ArrowCodec | GroundingCodec
+    adapter: Any
     device: torch.device
 
     def predict(
@@ -45,7 +44,7 @@ class ArrowInferenceRunner:
         generate_kwargs = build_generate_kwargs(
             self.artifacts.tokenizer,
             generation_config=getattr(raw_model, "generation_config", None),
-            num_bins=self.codec.num_bins,
+            num_bins=self.adapter.num_bins,
             prompt_lengths=[prompt_length],
             max_new_tokens=max_new_tokens or self.config.eval.max_new_tokens,
             num_beams=self.config.eval.num_beams,
@@ -77,7 +76,7 @@ class ArrowInferenceRunner:
         lenient_recovered_prefix = False
         strict_error: str | None = None
         try:
-            lenient_prediction, lenient_meta = self.codec.decode_with_meta(
+            lenient_prediction, lenient_meta = self.adapter.decode_with_meta(
                 decoded,
                 image_width=width,
                 image_height=height,
@@ -88,7 +87,7 @@ class ArrowInferenceRunner:
 
         if lenient_prediction is not None:
             try:
-                self.codec.decode(
+                self.adapter.decode(
                     strict_text,
                     image_width=width,
                     image_height=height,
@@ -201,14 +200,15 @@ def load_inference_runner(
         resume_training_state=False,
     )
     unwrap_model(artifacts.model).eval()
-    if config.task.type == "grounding":
-        codec = GroundingCodec(num_bins=config.tokenizer.num_bins)
-    else:
-        codec = ArrowCodec(num_bins=config.tokenizer.num_bins)
+    adapter = get_adapter(
+        task_type=config.task.task_type or config.task.type,
+        domain_type=config.task.domain_type,
+        num_bins=config.tokenizer.num_bins,
+    )
     return ArrowInferenceRunner(
         settings=settings,
         config=config,
         artifacts=artifacts,
-        codec=codec,
+        adapter=adapter,
         device=device,
     )

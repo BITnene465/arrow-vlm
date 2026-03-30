@@ -121,6 +121,8 @@ def _normalize_sample(json_path: Path, image_dir: Path, stats: Counter) -> dict[
     instances = sort_instances_canonical(instances)
 
     return {
+        "task_type": "joint_structure",
+        "domain_type": "arrow",
         "sample_id": image_path.stem,
         "image_path": str(image_path),
         "image_width": width,

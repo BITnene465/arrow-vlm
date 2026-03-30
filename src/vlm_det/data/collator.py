@@ -117,6 +117,7 @@ class ArrowSFTCollator:
             "prompt_lengths": torch.tensor(prompt_length_tensor, dtype=torch.long),
             "meta": {
                 "task_type": [item["task_type"] for item in batch],
+                "domain_type": [item.get("domain_type", "arrow") for item in batch],
                 "sample_id": [item["sample_id"] for item in batch],
                 "image_path": [item["image_path"] for item in batch],
                 "image_width": [item["image_width"] for item in batch],

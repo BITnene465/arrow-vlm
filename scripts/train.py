@@ -13,8 +13,6 @@ from vlm_det.data.collator import ArrowSFTCollator
 from vlm_det.data.dataset import ArrowSFTDataset
 from vlm_det.eval.evaluator import ArrowEvaluator
 from vlm_det.modeling.builder import build_model_tokenizer_processor
-from vlm_det.protocol.codec import ArrowCodec
-from vlm_det.protocol.grounding_codec import GroundingCodec
 from vlm_det.train.optim import build_optimizer, build_scheduler
 from vlm_det.train.trainer import ArrowTrainer
 from vlm_det.utils.distributed import barrier, cleanup_distributed, init_distributed, seed_everything
@@ -150,10 +148,6 @@ def main() -> None:
     print("[startup] building model, tokenizer, and processor...", flush=True)
     build_artifacts = build_model_tokenizer_processor(config)
     print("[startup] building codec and collator...", flush=True)
-    if config.task.type == "grounding":
-        codec = GroundingCodec(num_bins=config.tokenizer.num_bins)
-    else:
-        codec = ArrowCodec(num_bins=config.tokenizer.num_bins)
     train_collator = ArrowSFTCollator(
         processor=build_artifacts.processor,
         tokenizer=build_artifacts.tokenizer,
@@ -174,7 +168,7 @@ def main() -> None:
     print("[startup] loading datasets...", flush=True)
     train_dataset = ArrowSFTDataset(
         jsonl_path=config.data.train_path,
-        codec=codec,
+        num_bins=config.tokenizer.num_bins,
         system_prompt=config.prompt.system_prompt,
         user_prompt=config.prompt.user_prompt,
         system_prompt_template=config.prompt.system_prompt_template,
@@ -182,7 +176,7 @@ def main() -> None:
     )
     val_dataset = ArrowSFTDataset(
         jsonl_path=config.data.val_path,
-        codec=codec,
+        num_bins=config.tokenizer.num_bins,
         system_prompt=config.prompt.system_prompt,
         user_prompt=config.prompt.user_prompt,
         system_prompt_template=config.prompt.system_prompt_template,
@@ -237,7 +231,7 @@ def main() -> None:
         f"({trainable_ratio:.2f}%)"
     )
     evaluator = ArrowEvaluator(
-        codec=codec,
+        num_bins=config.tokenizer.num_bins,
         tokenizer=build_artifacts.tokenizer,
         max_new_tokens=config.eval.max_new_tokens,
         num_beams=config.eval.num_beams,
