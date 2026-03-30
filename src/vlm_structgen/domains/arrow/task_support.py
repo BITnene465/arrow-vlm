@@ -4,6 +4,8 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
+import torch
+
 from vlm_structgen.domains.arrow.codecs.grounding import GroundingCodec
 from vlm_structgen.domains.arrow.codecs.keypoint_sequence import KeypointSequenceCodec
 from vlm_structgen.domains.arrow.codecs.structure import ArrowCodec
@@ -166,3 +168,80 @@ class BaseArrowAdapter:
         del tokenizer
         del batch
         return model_outputs.loss
+
+    def _compute_weighted_token_ce_loss(
+        self,
+        model_outputs,
+        batch: dict[str, Any],
+        *,
+        tokenizer,
+        token_weight_builder,
+    ) -> object:
+        if tokenizer is None:
+            return model_outputs.loss
+
+        logits = model_outputs.logits
+        labels = batch["labels"].to(logits.device)
+        shift_logits = logits[:, :-1].contiguous()
+        shift_labels = labels[:, 1:].contiguous()
+        shift_weights = self._build_shift_weights(
+            batch=batch,
+            labels=labels,
+            tokenizer=tokenizer,
+            device=logits.device,
+            token_weight_builder=token_weight_builder,
+        )
+        if shift_weights is None:
+            return model_outputs.loss
+
+        loss_fct = torch.nn.CrossEntropyLoss(ignore_index=-100, reduction="none")
+        token_loss = loss_fct(
+            shift_logits.view(-1, shift_logits.size(-1)),
+            shift_labels.reshape(-1),
+        ).view_as(shift_labels)
+        valid_mask = (shift_labels != -100).to(token_loss.dtype)
+        weighted_loss = token_loss * shift_weights * valid_mask
+        denom = (shift_weights * valid_mask).sum().clamp_min(1.0)
+        return weighted_loss.sum() / denom
+
+    def _build_shift_weights(
+        self,
+        *,
+        batch: dict[str, Any],
+        labels: torch.Tensor,
+        tokenizer,
+        device: torch.device,
+        token_weight_builder,
+    ) -> torch.Tensor | None:
+        sequence_weights = torch.ones_like(labels, dtype=torch.float32, device=device)
+        meta = batch.get("meta", {})
+        target_texts = list(meta.get("target_text", []))
+        loss_metas = list(meta.get("loss_meta", []))
+        if len(target_texts) != labels.shape[0] or len(loss_metas) != labels.shape[0]:
+            return None
+        for row_index, (target_text, loss_meta) in enumerate(zip(target_texts, loss_metas, strict=True)):
+            token_weights = token_weight_builder(
+                str(target_text),
+                loss_meta=loss_meta,
+                tokenizer=tokenizer,
+            )
+            if token_weights is None:
+                return None
+            valid_positions = torch.nonzero(labels[row_index] != -100, as_tuple=False).flatten()
+            if valid_positions.numel() == 0:
+                continue
+            if len(token_weights) != int(valid_positions.numel()):
+                if len(token_weights) + 1 == int(valid_positions.numel()):
+                    token_weights = token_weights + [1.0]
+                else:
+                    limit = min(len(token_weights), int(valid_positions.numel()))
+                    token_weights = token_weights[:limit]
+                    valid_positions = valid_positions[:limit]
+            if not token_weights:
+                continue
+            sequence_weights[row_index, valid_positions] = torch.tensor(
+                token_weights,
+                dtype=torch.float32,
+                device=device,
+            )
+        return sequence_weights[:, 1:].contiguous()
