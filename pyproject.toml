@@ -3,9 +3,9 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vlm-det"
+name = "vlm-structgen"
 version = "0.1.0"
-description = "Structured VLM fine-tuning stack for arrow detection and keypoint estimation."
+description = "Multimodal structured-generation training and inference stack."
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
 license = "MIT"

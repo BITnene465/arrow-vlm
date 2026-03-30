@@ -69,7 +69,7 @@ That formulation was harder to train and drifted away from the official `Qwen3-V
 ```text
 configs/              training configs
 scripts/              preparation, training, inference, and utility entrypoints
-src/vlm_det/          core package
+src/vlm_structgen/          core package
 synthetic_pipeline/   synthetic data generation
 data/                 raw and processed datasets
 models/               local model weights
@@ -241,12 +241,14 @@ More detailed usage is documented in:
 
 - [docs/data_prepare.md](/home/tanjingyuan/code/arrow-vlm/docs/data_prepare.md)
 - [docs/task_domain_routing.md](/home/tanjingyuan/code/arrow-vlm/docs/task_domain_routing.md)
+- [docs/refactor_relaunch.md](/home/tanjingyuan/code/arrow-vlm/docs/refactor_relaunch.md)
+- [docs/developer_task_extension.md](/home/tanjingyuan/code/arrow-vlm/docs/developer_task_extension.md)
 
 ## Synthetic Post-Training Data
 
 Synthetic data generation lives under:
 
-- [synthetic_pipeline/README.md](/Users/nene/codespace/PGstudy/mess_work/vlm_det/synthetic_pipeline/README.md)
+- [synthetic_pipeline/README.md](/Users/nene/codespace/PGstudy/mess_work/vlm_structgen/synthetic_pipeline/README.md)
 
 The synthetic pipeline writes directly to:
 

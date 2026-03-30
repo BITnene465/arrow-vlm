@@ -226,7 +226,7 @@ adapter = registry.get(
 建议目标目录如下：
 
 ```text
-src/vlm_det/
+src/vlm_structgen/
   config.py
   prompting.py
 
@@ -632,36 +632,36 @@ task:
 
 ### 9.1 直接迁到 core
 
-- `src/vlm_det/data/collator.py`
-- `src/vlm_det/modeling/builder.py`
-- `src/vlm_det/train/optim.py`
-- `src/vlm_det/train/trainer.py`
-- `src/vlm_det/utils/*`
-- `src/vlm_det/infer/config.py`
+- `src/vlm_structgen/core/data/collator.py`
+- `src/vlm_structgen/core/modeling/builder.py`
+- `src/vlm_structgen/core/train/optim.py`
+- `src/vlm_structgen/core/train/trainer.py`
+- `src/vlm_structgen/core/utils/*`
+- `src/vlm_structgen/core/infer/config.py`
 
 ### 9.2 改造成 core 后保留
 
-- `src/vlm_det/data/dataset.py`
-- `src/vlm_det/infer/runner.py`
-- `src/vlm_det/eval/evaluator.py`
+- `src/vlm_structgen/core/data/dataset.py`
+- `src/vlm_structgen/core/infer/runner.py`
+- `src/vlm_structgen/core/eval/evaluator.py`
 
 ### 9.3 迁到 domains/arrow
 
-- `src/vlm_det/protocol/schema.py`
-- `src/vlm_det/data/ordering.py`
-- `src/vlm_det/data/prepare.py`
-- `src/vlm_det/data/two_stage.py`
-- `src/vlm_det/infer/two_stage.py`
-- `src/vlm_det/infer/visualize.py`
-- `src/vlm_det/protocol/codec.py`
-- `src/vlm_det/protocol/grounding_codec.py`
-- `src/vlm_det/protocol/keypoint_codec.py`
+- `src/vlm_structgen/domains/arrow/schema.py`
+- `src/vlm_structgen/domains/arrow/ordering.py`
+- `src/vlm_structgen/domains/arrow/data/prepare.py`
+- `src/vlm_structgen/domains/arrow/data/two_stage.py`
+- `src/vlm_structgen/domains/arrow/infer/two_stage.py`
+- `src/vlm_structgen/domains/arrow/infer/visualize.py`
+- `src/vlm_structgen/domains/arrow/codecs/structure.py`
+- `src/vlm_structgen/domains/arrow/codecs/grounding.py`
+- `src/vlm_structgen/domains/arrow/codecs/keypoint_sequence.py`
 
 ### 9.4 task adapters 需要新建
 
-- `src/vlm_det/tasks/grounding/adapter.py`
-- `src/vlm_det/tasks/keypoint_sequence/adapter.py`
-- `src/vlm_det/tasks/joint_structure/adapter.py`
+- `src/vlm_structgen/tasks/grounding/adapter.py`
+- `src/vlm_structgen/tasks/keypoint_sequence/adapter.py`
+- `src/vlm_structgen/tasks/joint_structure/adapter.py`
 
 ---
 

@@ -6,7 +6,7 @@ from typing import Any
 
 from PIL import Image
 
-from vlm_det.utils.io import load_jsonl
+from vlm_structgen.core.utils.io import load_jsonl
 
 from synthetic_pipeline.scene_sampler import clamp
 

@@ -42,7 +42,7 @@ data/sync/
 其中：
 
 - `train.jsonl` / `val.jsonl`
-  - 与当前 `ArrowSFTDataset` 直接兼容
+  - 与当前 `SFTDataset` 直接兼容
 - `manifest.json`
   - 记录本次生成所用配置与简单统计
 
@@ -243,7 +243,7 @@ python scripts/train.py --config configs/train_sync_posttrain.yaml
 python synthetic_pipeline/generate_sync_dataset.py \
   --train-samples 100 \
   --val-samples 20 \
-  --output-dir /tmp/vlm_det_sync_smoke
+  --output-dir /tmp/vlm_structgen_sync_smoke
 ```
 
 ## 当前进度记录

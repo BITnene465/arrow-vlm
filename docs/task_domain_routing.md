@@ -309,7 +309,7 @@ adapter 至少提供：
 ## 推荐目录草案
 
 ```text
-src/vlm_det/
+src/vlm_structgen/
   core/
     data/
       collator.py

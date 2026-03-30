@@ -8,13 +8,12 @@ from pathlib import Path
 
 import torch
 
-from vlm_det.config import load_config
-from vlm_det.data.collator import ArrowSFTCollator
-from vlm_det.data.dataset import ArrowSFTDataset
-from vlm_det.modeling.builder import build_model_tokenizer_processor
-from vlm_det.utils.checkpoint import load_training_checkpoint
-from vlm_det.utils.distributed import reset_model_runtime_state, unwrap_model
-from vlm_det.utils.generation import build_generate_kwargs, trim_generated_ids_at_eos
+from vlm_structgen.core import load_config
+from vlm_structgen.core.data import SFTCollator, SFTDataset
+from vlm_structgen.core.modeling.builder import build_model_tokenizer_processor
+from vlm_structgen.core.utils.checkpoint import load_training_checkpoint
+from vlm_structgen.core.utils.distributed import reset_model_runtime_state, unwrap_model
+from vlm_structgen.core.utils.generation import build_generate_kwargs, trim_generated_ids_at_eos
 
 
 def parse_args() -> argparse.Namespace:
@@ -29,9 +28,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _build_dataset(config, split: str) -> ArrowSFTDataset:
+def _build_dataset(config, split: str) -> SFTDataset:
     jsonl_path = config.data.val_path if split == "val" else config.data.train_path
-    return ArrowSFTDataset(
+    return SFTDataset(
         jsonl_path=jsonl_path,
         num_bins=config.tokenizer.num_bins,
         system_prompt=config.prompt.system_prompt,
@@ -60,7 +59,7 @@ def main() -> None:
     model.eval()
 
     dataset = _build_dataset(config, args.split)
-    collator = ArrowSFTCollator(
+    collator = SFTCollator(
         processor=artifacts.processor,
         tokenizer=artifacts.tokenizer,
         add_eos_token=config.tokenizer.add_eos_token,

@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from vlm_det.config import apply_run_id, load_config
+from vlm_structgen.core import apply_run_id, load_config
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

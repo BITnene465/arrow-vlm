@@ -10,9 +10,9 @@ from pathlib import Path
 import torch
 from PIL import Image
 
-from vlm_det.domains.arrow.infer.visualize import draw_prediction
-from vlm_det.infer.config import load_one_stage_inference_config
-from vlm_det.infer.runner import load_inference_runner
+from vlm_structgen.domains.arrow import draw_prediction
+from vlm_structgen.core.infer.config import load_one_stage_inference_config
+from vlm_structgen.core.infer import load_inference_runner
 
 
 APP_CSS = """

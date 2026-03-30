@@ -15,7 +15,7 @@ if __package__ is None or __package__ == "":
 
 from synthetic_pipeline.scene_sampler import clamp
 from synthetic_pipeline.style_schema import ArrowStyleFamily, ArrowStyleFeature, ArrowStyleMiningReport
-from vlm_det.utils.io import load_jsonl, write_json
+from vlm_structgen.core.utils.io import load_jsonl, write_json
 
 Image.MAX_IMAGE_PIXELS = None
 

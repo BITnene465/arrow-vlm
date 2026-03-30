@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 
-from vlm_det.domains.arrow.data.prepare import prepare_normalized_dataset
+from vlm_structgen.domains.arrow.data.prepare import prepare_normalized_dataset
 
 
 def parse_args() -> argparse.Namespace:

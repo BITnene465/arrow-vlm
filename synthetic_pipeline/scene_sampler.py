@@ -4,7 +4,7 @@ import math
 import random
 from typing import Any
 
-from vlm_det.data.ordering import normalize_keypoints_for_label
+from vlm_structgen.domains.arrow.ordering import normalize_keypoints_for_label
 
 from synthetic_pipeline.schema import ArrowInstance, SceneSpec, SyntheticSample
 

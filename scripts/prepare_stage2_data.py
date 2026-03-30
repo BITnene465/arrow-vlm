@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from vlm_det.domains.arrow.data.two_stage import prepare_stage2_data
+from vlm_structgen.domains.arrow.data.two_stage import prepare_stage2_data
 
 
 def parse_args() -> argparse.Namespace:

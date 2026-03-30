@@ -6,7 +6,7 @@ from typing import Any
 
 from PIL import Image, ImageDraw
 
-from vlm_det.utils.io import write_json, write_jsonl
+from vlm_structgen.core.utils.io import write_json, write_jsonl
 
 from synthetic_pipeline.schema import SyntheticSample
 

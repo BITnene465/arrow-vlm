@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from vlm_det.data.ordering import sort_instances_canonical
+from vlm_structgen.domains.arrow.ordering import sort_instances_canonical
 
 
 @dataclass

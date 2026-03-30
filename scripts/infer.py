@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from vlm_det.domains.arrow.infer.visualize import format_prediction_summary
+from vlm_structgen.domains.arrow import format_prediction_summary
 
 
 def parse_args() -> argparse.Namespace:
@@ -38,7 +38,7 @@ def _save_outputs(
 
 def main() -> None:
     args = parse_args()
-    from vlm_det.infer.runner import load_inference_runner
+    from vlm_structgen.core.infer import load_inference_runner
 
     runner = load_inference_runner(
         checkpoint_path=args.checkpoint,

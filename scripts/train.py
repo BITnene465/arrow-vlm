@@ -8,15 +8,14 @@ from collections.abc import Iterator
 import torch
 from torch.utils.data import DataLoader, DistributedSampler, Sampler
 
-from vlm_det.config import apply_run_id, load_config, config_to_dict
-from vlm_det.data.collator import ArrowSFTCollator
-from vlm_det.data.dataset import ArrowSFTDataset
-from vlm_det.eval.evaluator import ArrowEvaluator
-from vlm_det.modeling.builder import build_model_tokenizer_processor
-from vlm_det.train.optim import build_optimizer, build_scheduler
-from vlm_det.train.trainer import ArrowTrainer
-from vlm_det.utils.distributed import barrier, cleanup_distributed, init_distributed, seed_everything
-from vlm_det.utils.logging import ExperimentLogger, format_count
+from vlm_structgen.core import apply_run_id, config_to_dict, load_config
+from vlm_structgen.core.data import SFTCollator, SFTDataset
+from vlm_structgen.core.eval import Evaluator
+from vlm_structgen.core.modeling import build_model_tokenizer_processor
+from vlm_structgen.core.train import Trainer
+from vlm_structgen.core.train.optim import build_optimizer, build_scheduler
+from vlm_structgen.core.utils.distributed import barrier, cleanup_distributed, init_distributed, seed_everything
+from vlm_structgen.core.utils.logging import ExperimentLogger, format_count
 
 
 def _parse_bool_flag(value: str) -> bool:
@@ -148,7 +147,7 @@ def main() -> None:
     print("[startup] building model, tokenizer, and processor...", flush=True)
     build_artifacts = build_model_tokenizer_processor(config)
     print("[startup] building codec and collator...", flush=True)
-    train_collator = ArrowSFTCollator(
+    train_collator = SFTCollator(
         processor=build_artifacts.processor,
         tokenizer=build_artifacts.tokenizer,
         add_eos_token=config.tokenizer.add_eos_token,
@@ -156,7 +155,7 @@ def main() -> None:
         max_pixels=config.model.max_pixels,
         include_targets_in_inputs=True,
     )
-    val_collator = ArrowSFTCollator(
+    val_collator = SFTCollator(
         processor=build_artifacts.processor,
         tokenizer=build_artifacts.tokenizer,
         add_eos_token=config.tokenizer.add_eos_token,
@@ -166,7 +165,7 @@ def main() -> None:
         padding_side="left",
     )
     print("[startup] loading datasets...", flush=True)
-    train_dataset = ArrowSFTDataset(
+    train_dataset = SFTDataset(
         jsonl_path=config.data.train_path,
         num_bins=config.tokenizer.num_bins,
         system_prompt=config.prompt.system_prompt,
@@ -174,7 +173,7 @@ def main() -> None:
         system_prompt_template=config.prompt.system_prompt_template,
         user_prompt_template=config.prompt.user_prompt_template,
     )
-    val_dataset = ArrowSFTDataset(
+    val_dataset = SFTDataset(
         jsonl_path=config.data.val_path,
         num_bins=config.tokenizer.num_bins,
         system_prompt=config.prompt.system_prompt,
@@ -230,7 +229,7 @@ def main() -> None:
         f"trainable={format_count(trainable_params)} / {format_count(total_params)} "
         f"({trainable_ratio:.2f}%)"
     )
-    evaluator = ArrowEvaluator(
+    evaluator = Evaluator(
         num_bins=config.tokenizer.num_bins,
         tokenizer=build_artifacts.tokenizer,
         max_new_tokens=config.eval.max_new_tokens,
@@ -244,7 +243,7 @@ def main() -> None:
         strict_point_distance_px=config.eval.strict_point_distance_px,
     )
     print("[startup] building trainer...", flush=True)
-    trainer = ArrowTrainer(
+    trainer = Trainer(
         model=build_artifacts.model,
         tokenizer=build_artifacts.tokenizer,
         processor=build_artifacts.processor,

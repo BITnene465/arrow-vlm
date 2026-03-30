@@ -1,4 +1,4 @@
-name: vlm_det
+name: vlm_structgen
 channels:
   - pytorch
   - conda-forge
