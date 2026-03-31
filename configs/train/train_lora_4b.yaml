@@ -32,6 +32,8 @@ tokenizer:
 task:
   task_type: joint_structure
   domain_type: arrow
+  route_options:
+    joint_structure/arrow: {}
 
 prompt:
   system_prompt: ""

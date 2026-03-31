@@ -62,6 +62,7 @@ class PromptConfig:
 class TaskConfig:
     task_type: str = "joint_structure"
     domain_type: str = "arrow"
+    route_options: dict[str, dict[str, Any]] = field(default_factory=dict)
     options: dict[str, Any] = field(default_factory=dict)
 
 

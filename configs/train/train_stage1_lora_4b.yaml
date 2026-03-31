@@ -26,9 +26,10 @@ tokenizer:
 task:
   task_type: grounding
   domain_type: arrow
-  options:
-    bbox_token_loss_weight: 1.5
-    label_token_loss_weight: 1.25
+  route_options:
+    grounding/arrow:
+      bbox_token_loss_weight: 1.0
+      label_token_loss_weight: 1.0
 
 prompt:
   system_prompt: ""
@@ -49,8 +50,8 @@ finetune:
 
 lora:
   enabled: true
-  r: 64
-  alpha: 128
+  r: 32
+  alpha: 64
   dropout: 0.05
   bias: none
   # Language tower LoRA targets.
@@ -80,10 +81,10 @@ train:
   embed_learning_rate: 0.0001
   lm_head_learning_rate: 0.0001
   lora_learning_rate: 0.0002
-  weight_decay: 0.001
-  warmup_ratio: 0.05
+  weight_decay: 0.01
+  warmup_ratio: 0.1
   scheduler_type: cosine
-  max_grad_norm: 2.0
+  max_grad_norm: 1.0
   bf16: true
   eval_strategy: epoch
   eval_start_epoch: 0
@@ -96,7 +97,7 @@ train:
 
 eval:
   per_device_batch_size: 12
-  max_new_tokens: 2500
+  max_new_tokens: 2048
   num_beams: 1
   do_sample: false
   use_cache: true

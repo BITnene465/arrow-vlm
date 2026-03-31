@@ -259,12 +259,27 @@ class Trainer:
                 "Mixed task/domain batches are not supported by the current trainer. "
                 f"Observed task_types={sorted(set(task_types))}, domain_types={sorted(set(domain_types))}."
             )
+        task_options = self._resolve_task_options_for_route(
+            task_type=str(task_type),
+            domain_type=str(domain_type),
+        )
         return get_adapter(
             task_type=task_type,
             domain_type=domain_type,
             num_bins=self.config.tokenizer.num_bins,
-            task_options_key=tuple(sorted(self.config.task.options.items())),
+            task_options_key=tuple(sorted(task_options.items())),
         )
+
+    def _resolve_task_options_for_route(self, *, task_type: str, domain_type: str) -> dict[str, Any]:
+        route_key = f"{task_type}/{domain_type}"
+        route_options = self.config.task.route_options.get(route_key)
+        if route_options is None:
+            known_routes = sorted(self.config.task.route_options.keys())
+            raise ValueError(
+                "Missing task.route_options for current batch route. "
+                f"required={route_key!r}, available={known_routes}."
+            )
+        return dict(route_options)
 
     def evaluate(self, step: int | None = None, epoch: int | None = None) -> dict[str, float]:
         if self.evaluator is None or self.val_dataloader is None:

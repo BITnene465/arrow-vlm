@@ -26,8 +26,9 @@ tokenizer:
 task:
   task_type: keypoint_sequence
   domain_type: arrow
-  options:
-    coordinate_token_loss_weight: 1.5
+  route_options:
+    keypoint_sequence/arrow:
+      coordinate_token_loss_weight: 1.5
 
 prompt:
   system_prompt: ""
