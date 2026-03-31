@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import shutil
+from collections import Counter
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
@@ -95,6 +96,7 @@ class Trainer:
     def train_one_epoch(self, epoch: int) -> None:
         self.model.train()
         self._accumulated_micro_steps = 0
+        route_counter: Counter[tuple[str, str]] = Counter()
         progress = create_progress_bar(
             total=len(self.train_dataloader),
             desc=f"train e{epoch + 1}",
@@ -103,6 +105,7 @@ class Trainer:
         )
         self.optimizer.zero_grad(set_to_none=True)
         for step_index, batch in enumerate(self.train_dataloader, start=1):
+            route_counter.update(self._collect_batch_routes(batch))
             step_metrics = self.train_one_step(batch)
             if progress is not None:
                 progress.set_postfix(
@@ -145,6 +148,7 @@ class Trainer:
                 self._log_metrics(flush_metrics, self.global_step)
         if progress is not None:
             progress.close()
+            self._log_epoch_route_distribution(epoch=epoch, route_counter=route_counter)
 
     def train_one_step(self, batch) -> dict[str, float]:
         model_inputs = self._move_batch_to_device(batch)
@@ -190,6 +194,57 @@ class Trainer:
             "train/grad_norm": grad_norm,
             "train/lr": float(self.optimizer.param_groups[0]["lr"]),
         }
+
+    def _collect_batch_routes(self, batch: dict[str, Any]) -> Counter[tuple[str, str]]:
+        meta = batch.get("meta", {})
+        task_types = list(meta.get("task_type", []))
+        domain_types = list(meta.get("domain_type", []))
+        routes: Counter[tuple[str, str]] = Counter()
+        for task_type, domain_type in zip(task_types, domain_types, strict=False):
+            routes[(str(task_type), str(domain_type))] += 1
+        return routes
+
+    def _log_epoch_route_distribution(self, *, epoch: int, route_counter: Counter[tuple[str, str]]) -> None:
+        if not route_counter:
+            return
+
+        reduction_payload = {
+            f"__route__::{task_type}::{domain_type}": float(count)
+            for (task_type, domain_type), count in route_counter.items()
+        }
+        reduced_payload = reduce_numeric_dict(reduction_payload, average=False)
+        reduced_route_counter: Counter[tuple[str, str]] = Counter()
+        for key, value in reduced_payload.items():
+            _prefix, task_type, domain_type = key.split("::", 2)
+            reduced_route_counter[(task_type, domain_type)] = int(round(value))
+
+        total_samples = sum(reduced_route_counter.values())
+        if total_samples <= 0:
+            return
+
+        summary_parts = [
+            f"{task_type}/{domain_type}={count} ({count / total_samples:.2%})"
+            for (task_type, domain_type), count in sorted(
+                reduced_route_counter.items(),
+                key=lambda item: (-item[1], item[0][0], item[0][1]),
+            )
+        ]
+        message = (
+            f"epoch={epoch + 1} observed task/domain distribution "
+            f"(total_samples={total_samples}): "
+            + ", ".join(summary_parts)
+        )
+        if self.logger is not None:
+            self.logger.info(message)
+
+        metrics = {
+            "train/routes/total_samples": float(total_samples),
+        }
+        for (task_type, domain_type), count in reduced_route_counter.items():
+            metric_key = f"train/routes/{task_type}__{domain_type}"
+            metrics[metric_key] = float(count)
+            metrics[f"{metric_key}_ratio"] = float(count) / float(total_samples)
+        self._log_metrics(metrics, self.global_step)
 
     def _resolve_batch_adapter(self, batch: dict[str, Any]):
         meta = batch.get("meta", {})
