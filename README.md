@@ -164,6 +164,7 @@ Two-stage experiments derive two datasets from the processed annotations:
   - ratio-based multi-scale sliding-window samples
   - density-driven crop samples
   - grounding target: `label + bbox`
+  - weighted token loss uses precise `GroundingCodec` field spans for label text and bbox coordinates
   - prompt style aligned with the Qwen3-VL grounding cookbook: short instruction + relative coordinates
 - `stage2`: target-conditioned crop supervision
   - crop image

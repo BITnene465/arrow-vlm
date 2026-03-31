@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from vlm_structgen.domains.arrow.codecs.structure import ArrowCodec, ValidationReport
@@ -23,8 +22,8 @@ class GroundingCodec(ArrowCodec):
         image_height: int,
     ) -> tuple[str, dict[str, Any]]:
         instances = gt_struct.get("instances", [])
-        parts: list[str] = []
-        cursor = 0
+        parts: list[str] = ["["]
+        cursor = 1
         label_spans: list[list[int]] = []
         bbox_spans: list[list[int]] = []
 
@@ -33,30 +32,32 @@ class GroundingCodec(ArrowCodec):
             parts.append(text)
             cursor += len(text)
 
-        append("[")
         for instance in instances:
             bbox = instance.get("bbox", [])
             if len(bbox) != 4:
                 raise ValueError("Grounding instances must contain bbox with 4 values.")
             if cursor > 1:
                 append(",")
-            append('{"label":')
-            label_text = json.dumps(str(instance.get("label", "")), ensure_ascii=False, separators=(",", ":"))
+            append('{"label":"')
+            label_text = str(instance.get("label", ""))
             label_start = cursor
             append(label_text)
             label_spans.append([label_start, cursor])
-            append(',"bbox_2d":')
+            append('","bbox_2d":[')
             bbox_values = [
                 self._quantize(float(bbox[0]), image_width),
                 self._quantize(float(bbox[1]), image_height),
                 self._quantize(float(bbox[2]), image_width),
                 self._quantize(float(bbox[3]), image_height),
             ]
-            bbox_text = json.dumps(bbox_values, ensure_ascii=False, separators=(",", ":"))
-            bbox_start = cursor
-            append(bbox_text)
-            bbox_spans.append([bbox_start, cursor])
-            append("}")
+            for coord_index, coord in enumerate(bbox_values):
+                if coord_index > 0:
+                    append(",")
+                coord_text = str(int(coord))
+                coord_start = cursor
+                append(coord_text)
+                bbox_spans.append([coord_start, cursor])
+            append("]}")
         append("]")
         return "".join(parts), {
             "field_char_spans": {
