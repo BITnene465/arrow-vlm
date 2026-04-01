@@ -5,7 +5,7 @@ import argparse
 from pathlib import Path
 from typing import Any
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from vlm_structgen.core.infer import load_inference_runner
 from vlm_structgen.core.registry import get_adapter
@@ -36,8 +36,45 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help="Whether to save per-sample JSONL records.",
     )
+    parser.add_argument(
+        "--save-visualizations",
+        dest="save_visualizations",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Whether to save keypoint visualization images.",
+    )
     parser.add_argument("--save-badcases-topk", type=int, default=200, help="How many worst metric badcases to save.")
     return parser.parse_args()
+
+
+def _draw_keypoint_overlay(
+    image: Image.Image,
+    *,
+    gt_points: list[Any],
+    pred_points: list[Any],
+) -> Image.Image:
+    canvas = image.convert("RGB").copy()
+    draw = ImageDraw.Draw(canvas)
+
+    gt_xy = [(float(point[0]), float(point[1])) for point in gt_points if isinstance(point, (list, tuple)) and len(point) >= 2]
+    pred_xy = [
+        (float(point[0]), float(point[1]))
+        for point in pred_points
+        if isinstance(point, (list, tuple)) and len(point) >= 2
+    ]
+
+    if len(gt_xy) >= 2:
+        draw.line(gt_xy, fill="#2ca02c", width=3)
+    for x, y in gt_xy:
+        draw.ellipse((x - 4, y - 4, x + 4, y + 4), fill="#2ca02c", outline="#2ca02c")
+
+    if len(pred_xy) >= 2:
+        draw.line(pred_xy, fill="#d62728", width=3)
+    for x, y in pred_xy:
+        draw.ellipse((x - 4, y - 4, x + 4, y + 4), fill="#d62728", outline="#d62728")
+
+    draw.text((10, 10), "GT=green, Pred=red", fill="#111111")
+    return canvas
 
 
 def _resolve_image_path(record_image_path: str, *, jsonl_path: Path) -> Path:
@@ -116,13 +153,14 @@ def main() -> None:
     )
 
     output_dir = ensure_dir(args.output_dir)
+    vis_dir = ensure_dir(output_dir / "visualizations") if args.save_visualizations else None
     per_sample_rows: list[dict[str, Any]] = []
     parse_badcases: list[dict[str, Any]] = []
     metric_badcases: list[dict[str, Any]] = []
     counts = _empty_counts()
 
     progress = create_progress_bar(total=len(records), desc="eval s2", leave=True)
-    for record in records:
+    for record_index, record in enumerate(records, start=1):
         task_type = str(record.get("task_type", ""))
         domain_type = str(record.get("domain_type", ""))
         if task_type != "keypoint_sequence" or domain_type != "arrow":
@@ -192,6 +230,13 @@ def main() -> None:
             "raw_text": raw_text,
             "prediction": pred_struct,
         }
+
+        if vis_dir is not None:
+            sample_id = str(record.get("sample_id") or Path(image_path).stem)
+            vis_path = vis_dir / f"{record_index:05d}_{sample_id}.png"
+            _draw_keypoint_overlay(image, gt_points=gt_points, pred_points=pred_points).save(vis_path)
+            row["visualization_path"] = str(vis_path)
+
         if args.save_per_sample:
             per_sample_rows.append(row)
 

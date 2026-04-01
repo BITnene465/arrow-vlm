@@ -10,6 +10,7 @@ from vlm_structgen.core.infer import load_inference_runner
 from vlm_structgen.core.registry import get_adapter
 from vlm_structgen.core.utils.io import ensure_dir, load_jsonl, write_json, write_jsonl
 from vlm_structgen.core.utils.logging import create_progress_bar
+from vlm_structgen.domains.arrow import draw_prediction
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,6 +31,13 @@ def parse_args() -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Whether to save per-sample JSONL records.",
+    )
+    parser.add_argument(
+        "--save-visualizations",
+        dest="save_visualizations",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Whether to save prediction visualization images.",
     )
     parser.add_argument("--save-badcases-topk", type=int, default=200, help="How many worst metric badcases to save.")
     return parser.parse_args()
@@ -118,13 +126,14 @@ def main() -> None:
     )
 
     output_dir = ensure_dir(args.output_dir)
+    vis_dir = ensure_dir(output_dir / "visualizations") if args.save_visualizations else None
     per_sample_rows: list[dict[str, Any]] = []
     parse_badcases: list[dict[str, Any]] = []
     metric_badcases: list[dict[str, Any]] = []
     counts = _empty_counts()
 
     progress = create_progress_bar(total=len(records), desc="eval s1", leave=True)
-    for record in records:
+    for record_index, record in enumerate(records, start=1):
         task_type = str(record.get("task_type", ""))
         domain_type = str(record.get("domain_type", ""))
         if task_type != "grounding" or domain_type != "arrow":
@@ -188,6 +197,13 @@ def main() -> None:
             "raw_text": raw_text,
             "prediction": pred_struct,
         }
+
+        if vis_dir is not None:
+            sample_id = str(record.get("sample_id") or Path(image_path).stem)
+            vis_path = vis_dir / f"{record_index:05d}_{sample_id}.png"
+            draw_prediction(image, pred_struct).save(vis_path)
+            row["visualization_path"] = str(vis_path)
+
         if args.save_per_sample:
             per_sample_rows.append(row)
 
