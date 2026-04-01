@@ -148,7 +148,7 @@ class Trainer:
                 self._log_metrics(flush_metrics, self.global_step)
         if progress is not None:
             progress.close()
-            self._log_epoch_route_distribution(epoch=epoch, route_counter=route_counter)
+        self._log_epoch_route_distribution(epoch=epoch, route_counter=route_counter)
 
     def train_one_step(self, batch) -> dict[str, float]:
         model_inputs = self._move_batch_to_device(batch)

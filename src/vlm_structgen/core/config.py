@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, TypeVar, get_args, get_origin, get_type_hints
 
 import yaml
+from vlm_structgen.core.utils.logging import get_vlm_logger
 
 
 @dataclass
@@ -183,6 +184,55 @@ class ExperimentRuntimeConfig:
 T = TypeVar("T")
 
 
+def _unwrap_dataclass_annotation(annotation: Any) -> type[Any] | None:
+    if is_dataclass(annotation):
+        return annotation
+    origin = get_origin(annotation)
+    if origin is None:
+        return None
+    args = [arg for arg in get_args(annotation) if arg is not type(None)]
+    if len(args) != 1:
+        return None
+    candidate = args[0]
+    if is_dataclass(candidate):
+        return candidate
+    return None
+
+
+def _warn_unknown_config_keys(
+    cls: type[Any],
+    data: dict[str, Any],
+    *,
+    path: str,
+) -> None:
+    if not isinstance(data, dict):
+        return
+
+    logger = get_vlm_logger()
+    type_hints = get_type_hints(cls)
+    field_names = {field_info.name for field_info in fields(cls)}
+    unknown_keys = sorted(set(data.keys()) - field_names)
+    for key in unknown_keys:
+        logger.warning(
+            "Unknown config key ignored: %s%s",
+            f"{path}." if path else "",
+            key,
+        )
+
+    for field_info in fields(cls):
+        if field_info.name not in data:
+            continue
+        annotation = type_hints.get(field_info.name, field_info.type)
+        nested_cls = _unwrap_dataclass_annotation(annotation)
+        if nested_cls is None:
+            continue
+        nested_data = data[field_info.name]
+        if not isinstance(nested_data, dict):
+            continue
+        next_path = f"{path}.{field_info.name}" if path else field_info.name
+        _warn_unknown_config_keys(nested_cls, nested_data, path=next_path)
+
+
 def _convert_value(value: Any, annotation: Any) -> Any:
     origin = get_origin(annotation)
     if is_dataclass(annotation):
@@ -237,6 +287,7 @@ def load_config(path: str | Path) -> ExperimentRuntimeConfig:
     config_path = Path(path)
     with config_path.open("r", encoding="utf-8") as handle:
         yaml_payload = yaml.safe_load(handle) or {}
+    _warn_unknown_config_keys(ExperimentRuntimeConfig, yaml_payload, path="")
     config = _from_dict(ExperimentRuntimeConfig, yaml_payload)
     return apply_model_scale_tag(config)
 

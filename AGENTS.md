@@ -359,6 +359,15 @@ Stage2 当前约定：
 - 这类有序 JSON 监督任务，canonical order 是硬约束
 - weighted token loss 应通过结构化 `loss_meta` 实现，不要写文本级 hack
 
+## 当前训练限制
+
+- 当前版本训练链路按 batch 路由单一 `task_type/domain_type`，不支持多任务混训。
+- 如果将多种 task/domain 样本混在同一次训练中，训练会在 batch 路由检查处失败。
+- 现阶段请保持：
+  - 一次训练只使用单一 task/domain 数据集
+  - 配置中的 `task.route_options` 只配置当前训练 route
+- 混合任务训练（multi-task mixed training）属于后续能力，不在当前正式支持范围内。
+
 更细的实验笔记仍在：
 
 - `lab_notes/canonical-order.md`

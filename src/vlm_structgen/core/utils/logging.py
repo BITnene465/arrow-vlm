@@ -12,6 +12,10 @@ from vlm_structgen.core.utils.distributed import is_main_process
 from vlm_structgen.core.utils.io import ensure_dir
 
 
+def get_vlm_logger() -> logging.Logger:
+    return logging.getLogger("vlm_structgen")
+
+
 class ExperimentLogger:
     def __init__(
         self,
@@ -22,7 +26,7 @@ class ExperimentLogger:
         config: dict[str, Any],
     ) -> None:
         self.output_dir = ensure_dir(output_dir)
-        self._logger = logging.getLogger("vlm_structgen")
+        self._logger = get_vlm_logger()
         self._logger.setLevel(logging.INFO)
         self._logger.handlers.clear()
         formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")

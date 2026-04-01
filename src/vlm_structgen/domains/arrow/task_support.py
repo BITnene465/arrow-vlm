@@ -6,6 +6,7 @@ from typing import Any
 
 import torch
 
+from vlm_structgen.core.utils.logging import get_vlm_logger
 from vlm_structgen.domains.arrow.codecs.grounding import GroundingCodec
 from vlm_structgen.domains.arrow.codecs.keypoint_sequence import KeypointSequenceCodec
 from vlm_structgen.domains.arrow.codecs.structure import ArrowCodec
@@ -140,6 +141,13 @@ class BaseArrowAdapter:
     task_type: str = field(init=False)
     task_bucket_key: str = field(init=False)
     domain_type: str = "arrow"
+    _warned_flags: set[str] = field(default_factory=set, init=False, repr=False)
+
+    def _warn_once(self, flag: str, message: str) -> None:
+        if flag in self._warned_flags:
+            return
+        self._warned_flags.add(flag)
+        get_vlm_logger().warning(message)
 
     @property
     def num_bins(self) -> int:
@@ -192,6 +200,11 @@ class BaseArrowAdapter:
             token_weight_builder=token_weight_builder,
         )
         if shift_weights is None:
+            self._warn_once(
+                "weighted_loss_fallback_shift_weights_none",
+                "weighted token loss disabled for current adapter: failed to build shift weights; "
+                f"fallback to model loss. route={self.task_type}/{self.domain_type}",
+            )
             return model_outputs.loss
 
         loss_fct = torch.nn.CrossEntropyLoss(ignore_index=-100, reduction="none")
@@ -218,6 +231,12 @@ class BaseArrowAdapter:
         target_texts = list(meta.get("target_text", []))
         loss_metas = list(meta.get("loss_meta", []))
         if len(target_texts) != labels.shape[0] or len(loss_metas) != labels.shape[0]:
+            self._warn_once(
+                "weighted_loss_meta_batch_mismatch",
+                "weighted token loss disabled for current adapter: batch meta shape mismatch "
+                f"(target_text={len(target_texts)}, loss_meta={len(loss_metas)}, batch={labels.shape[0]}). "
+                f"route={self.task_type}/{self.domain_type}",
+            )
             return None
         for row_index, (target_text, loss_meta) in enumerate(zip(target_texts, loss_metas, strict=True)):
             token_weights = token_weight_builder(

@@ -120,6 +120,11 @@ class ArrowKeypointSequenceAdapter(BaseArrowAdapter):
         offsets = encoded.get("offset_mapping")
         input_ids = encoded.get("input_ids")
         if offsets is None or input_ids is None:
+            self._warn_once(
+                "keypoint_offset_mapping_unavailable",
+                "weighted token loss disabled for keypoint_sequence: tokenizer did not return offset_mapping/input_ids; "
+                f"fallback to model loss. route={self.task_type}/{self.domain_type}",
+            )
             return None
 
         field_spans = dict((loss_meta or {}).get("field_char_spans", {}))
