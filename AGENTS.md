@@ -210,29 +210,12 @@ Stage2 当前约定：
 - synthetic post-train：
   - `configs/train/train_sync_posttrain.yaml`
 
-## 当前推理入口
+## 辅助脚本文档
 
-- one-stage CLI：
-  - `scripts/arrow/infer.py`
-- two-stage CLI：
-  - `scripts/arrow/infer_two_stage.py`
-- one-stage demo：
-  - `app/demo.py`
-- two-stage demo：
-  - `app/demo_two_stage.py`
+infer / demo / eval 属于辅助脚本，不在本文件维护使用说明。
 
-推理配置：
-
-- `configs/infer/infer_one_stage.yaml`
-- `configs/infer/infer_two_stage.yaml`
-
-当前 infer 路由原则：
-
-- infer config 可以显式覆盖：
-  - `task_type`
-  - `domain_type`
-- 如果 infer config 不写，则默认从 checkpoint meta 读
-- 不要再在 loader 里写额外 task 硬编码
+- 统一文档：
+  - `docs/tool_scripts.md`
 
 ## 当前两阶段语义
 

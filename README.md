@@ -399,102 +399,18 @@ Behavior:
 - `train_projector: true` in LoRA mode: projector LoRA is attached on
   `proj_target_modules`, rather than fully unfreezing projector weights
 
-## Two-Stage Inference
+## Auxiliary Tools
 
-Run two-stage inference with:
+Inference, evaluation, and demo scripts are auxiliary workflows and are maintained in dedicated docs instead of this main README.
 
-```bash
-python scripts/arrow/infer_two_stage.py \
-  --config configs/infer/infer_two_stage.yaml \
-  --stage1-checkpoint outputs/qwen3vl-s1-lora/4b/checkpoints/best \
-  --stage2-checkpoint outputs/qwen3vl-s2-lora/4b/checkpoints/best \
-  --image path/to/example.png \
-  --output-dir outputs/two_stage_demo
-```
+- 辅助脚本文档: [docs/tool_scripts.md](docs/tool_scripts.md)
 
-Current two-stage flow:
+This guide includes:
 
-1. Stage 1 grounding predicts `label + bbox` using mixed proposals:
-   - full image
-   - ratio-driven multi-scale tiles
-2. Stage 1 proposals are merged with `label + IoU` deduplication.
-3. Stage 2 crops each merged proposal and predicts the main arrow skeleton, conditioned on crop-local `label + bbox_2d`.
-4. Omitting `--stage2-checkpoint` keeps the flow in Stage1-only inspection mode.
-
-`infer_two_stage.py` now exposes a Stage1 mixed-proposal toggle:
-
-- default: enabled
-- CLI: `--stage1-mixed-proposals` / `--no-stage1-mixed-proposals`
-- demo: `Enable Stage1 Mixed Proposals`
-- final predictions now include `stage2_status`:
-  - `success`
-  - `failed`
-  Failed Stage2 boxes keep the Stage1 bbox and are rendered with a gray box plus `[S2 fail]`.
-
-## Two-Stage Demo
-
-Launch the two-stage Gradio app with:
-
-```bash
-python app/demo_two_stage.py \
-  --config configs/infer/infer_two_stage.yaml \
-  --stage1-checkpoint outputs/qwen3vl-s1-lora/4b/checkpoints/best
-```
-
-`demo_two_stage.py` 固定展示三张图：
-
-- 输入图
-- Stage1 Overlay
-- Stage2 / Final Overlay
-
-如果不提供 `--stage2-checkpoint`，页面会进入 Stage1-only 模式：
-
-- 状态区会明确提示未加载 Stage2
-- 第二张图显示 Stage1 可视化
-- 第三张图留空
-
-### Two-Stage Training Launcher
-
-Run synthetic post-train first, then launch real-data SFT from the stage-1 checkpoint:
-
-```bash
-python scripts/arrow/train_two_stage.py \
-  --run-id 20260325-exp01 \
-  --stage1-freeze-vision-tower false \
-  --stage2-freeze-vision-tower true \
-  --stage2-gradient-checkpointing true \
-  --stage1-config configs/train/train_sync_posttrain.yaml \
-  --stage2-config configs/train/train_full_ft.yaml
-```
-
-Use LoRA for stage 2 if needed:
-
-```bash
-python scripts/arrow/train_two_stage.py \
-  --run-id 20260325-exp01 \
-  --stage1-config configs/train/train_sync_posttrain.yaml \
-  --stage2-config configs/train/train_lora.yaml
-```
-
-Preview commands without starting training:
-
-```bash
-python scripts/arrow/train_two_stage.py --dry-run
-```
-
-With `--run-id`, the two stages are separated automatically, for example:
-
-```text
-outputs/qwen3vl-post/2b/20260325-exp01/stage1_sync_posttrain
-outputs/qwen3vl-ft/2b/20260325-exp01/stage2_real_sft
-```
-
-Use multi-GPU launchers for both stages:
-
-```bash
-python scripts/arrow/train_two_stage.py \
-  --runner "torchrun --nproc_per_node=2"
-```
+- one-stage inference CLI
+- two-stage inference CLI
+- one-stage and two-stage demos
+- stage1 grounding replayable evaluation (`eval_stage1_grounding.py`)
 
 ## Prompting Style
 
@@ -511,92 +427,7 @@ The default prompt asks the model to:
 - emit `single_arrow` / `double_arrow` labels explicitly
 - keep `single_arrow` keypoints ordered from tail to head
 
-## Inference
-
-One-stage inference uses an infer config instead of a training YAML.
-
-Create a local `.env` only if you want `CHECKPOINT_PATH` fallback:
-
-```bash
-cp .env.example .env
-```
-
-Run inference with:
-
-```bash
-python scripts/arrow/infer.py \
-  --config configs/infer/infer_one_stage.yaml \
-  --checkpoint outputs/your_experiment/checkpoints/best \
-  --max-new-tokens 4096 \
-  --image /path/to/figure.jpg
-```
-
-This saves:
-
-- `*.prediction.json`
-- `*.raw.txt`
-
-or let the checkpoint fall back to `CHECKPOINT_PATH` in `.env`:
-
-```bash
-python scripts/arrow/infer.py \
-  --config configs/infer/infer_one_stage.yaml \
-  --env-file /path/to/.env \
-  --max-new-tokens 4096 \
-  --image /path/to/figure.jpg \
-  --output-dir outputs/infer_results
-```
-
-The CLI also prints the raw decoded model text to stdout so you can inspect strict-vs-lenient parse failures directly.
-
-## App
-
-Launch the one-stage Gradio app with the infer config:
-
-```bash
-python app/demo.py \
-  --config configs/infer/infer_one_stage.yaml \
-  --checkpoint outputs/your_experiment/checkpoints/best
-```
-
-or override `max_new_tokens` for the whole app session:
-
-```bash
-python app/demo.py \
-  --config configs/infer/infer_one_stage.yaml \
-  --checkpoint outputs/your_experiment/checkpoints/best \
-  --max-new-tokens 4096
-```
-
-Inference configs only store prompt/template and inference-time settings.
-They do not store checkpoint paths or base-model paths.
-
-- one-stage infer config: `configs/infer/infer_one_stage.yaml`
-- two-stage infer config: `configs/infer/infer_two_stage.yaml`
-
 Training configuration is separate: `scripts/train.py` still only reads training YAML files.
-
-## Evaluation and Debugging
-
-To inspect a few decoded validation samples:
-
-```bash
-python scripts/debug_eval.py \
-  --config configs/train/train_sync_posttrain.yaml \
-  --checkpoint outputs/your_experiment/checkpoints/last \
-  --split val \
-  --num-samples 1 \
-  --show-text
-```
-
-This prints:
-
-- prompt length
-- generated token count
-- parse success / failure
-- decoded raw text
-
-During training evaluation, preview samples are also logged automatically.
 
 ## Important Notes
 
