@@ -1,0 +1,31 @@
+model:
+  min_pixels: 50176
+  max_pixels: 262144
+
+task:
+  task_type: keypoint_sequence
+  domain_type: arrow
+
+prompt:
+  system_prompt: ""
+  user_prompt: |
+    The target arrow in this crop is specified by:
+    {"label":"single_arrow|double_arrow","bbox_2d":[x1,y1,x2,y2]}
+    Output only a JSON object in [0,999].
+    Format: {"keypoints_2d":[[x0,y0],[x1,y1],...]}
+    Return the skeleton of this target arrow only.
+    For single_arrow, output the skeleton from tail to head.
+    For double_arrow, output the skeleton from the upper-left head to the other head.
+
+eval:
+  max_new_tokens: 256
+  num_beams: 1
+  do_sample: false
+  use_cache: true
+
+app:
+  host: 127.0.0.1
+  port: 7860
+  share: false
+
+output_dir: null

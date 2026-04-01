@@ -15,7 +15,11 @@ from vlm_structgen.core.utils.logging import create_progress_bar
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate stage2 keypoint_sequence on a JSONL split.")
-    parser.add_argument("--config", default="configs/infer/infer_one_stage.yaml", help="One-stage inference config path.")
+    parser.add_argument(
+        "--config",
+        default="configs/infer/infer_stage2_keypoint_sequence.yaml",
+        help="Stage2 keypoint_sequence inference config path.",
+    )
     parser.add_argument("--checkpoint", default=None, help="Checkpoint directory. Falls back to CHECKPOINT_PATH in .env.")
     parser.add_argument("--env-file", default=None, help="Optional path to a .env file for checkpoint fallback.")
     parser.add_argument("--model", default=None, help="Optional model path/name override.")

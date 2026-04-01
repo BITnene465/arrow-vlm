@@ -1,0 +1,27 @@
+model:
+  min_pixels: 200704
+  max_pixels: 786432
+
+task:
+  task_type: grounding
+  domain_type: arrow
+
+prompt:
+  system_prompt: ""
+  user_prompt: |
+    Detect all arrows in the image and return their bounding boxes as a JSON array.
+    Use relative coordinates in [0,999].
+    Each item must be {"label":"single_arrow"|"double_arrow","bbox_2d":[x1,y1,x2,y2]}.
+
+eval:
+  max_new_tokens: 2048
+  num_beams: 1
+  do_sample: false
+  use_cache: true
+
+app:
+  host: 127.0.0.1
+  port: 7860
+  share: false
+
+output_dir: null

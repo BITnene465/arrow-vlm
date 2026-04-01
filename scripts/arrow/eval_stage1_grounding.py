@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 from __future__ import annotations
 
 import argparse
@@ -15,12 +14,12 @@ from vlm_structgen.core.utils.logging import create_progress_bar
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate stage1 grounding on a JSONL split.")
-    parser.add_argument("--config", default="configs/infer/infer_one_stage.yaml", help="One-stage inference config path.")
+    parser.add_argument("--config", default="configs/infer/infer_stage1_grounding.yaml", help="Stage1 grounding inference config path.")
     parser.add_argument("--checkpoint", default=None, help="Checkpoint directory. Falls back to CHECKPOINT_PATH in .env.")
     parser.add_argument("--env-file", default=None, help="Optional path to a .env file for checkpoint fallback.")
     parser.add_argument("--model", default=None, help="Optional model path/name override.")
     parser.add_argument("--device", default=None, help="Optional torch device override, e.g. cuda:0 or cpu.")
-    parser.add_argument("--jsonl", default="data/two_stage/stage1/val.jsonl", help="Grounding dataset JSONL path.")
+    parser.add_argument("--jsonl", default="data/two_stage/stage1/val_full.jsonl", help="Grounding dataset JSONL path.")
     parser.add_argument("--max-new-tokens", type=int, default=None, help="Override max_new_tokens for evaluation run.")
     parser.add_argument("--bbox-iou-threshold", type=float, default=0.5, help="IoU threshold for TP/FP/FN matching.")
     parser.add_argument("--max-samples", type=int, default=None, help="Evaluate at most N samples from JSONL.")
