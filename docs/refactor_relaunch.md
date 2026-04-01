@@ -35,7 +35,7 @@ uv sync
 命令：
 
 ```bash
-python scripts/prepare_data.py \
+python scripts/arrow/prepare_data.py \
   --raw-json-dir data/raw/json \
   --image-dir data/raw/figure \
   --output-dir data/processed
@@ -55,7 +55,7 @@ python scripts/prepare_data.py \
 命令：
 
 ```bash
-python scripts/prepare_stage1_data.py \
+python scripts/arrow/prepare_stage1_data.py \
   --input-dir data/processed \
   --output-dir data/two_stage \
   --num-workers 16 \
@@ -78,7 +78,7 @@ python scripts/prepare_stage1_data.py \
 命令：
 
 ```bash
-python scripts/prepare_stage2_data.py \
+python scripts/arrow/prepare_stage2_data.py \
   --input-dir data/processed \
   --output-dir data/two_stage \
   --padding-ratio 0.3 \
@@ -156,7 +156,7 @@ CUDA_VISIBLE_DEVICES=1 python scripts/train.py \
 ### 5.1 one-stage
 
 ```bash
-python scripts/infer.py \
+python scripts/arrow/infer.py \
   --config configs/infer/infer_one_stage.yaml \
   --checkpoint outputs/qwen3vl-lora/4b/relaunch-joint-4b/checkpoints/best \
   --image data/val_images/00008.jpg
@@ -165,7 +165,7 @@ python scripts/infer.py \
 ### 5.2 two-stage
 
 ```bash
-python scripts/infer_two_stage.py \
+python scripts/arrow/infer_two_stage.py \
   --config configs/infer/infer_two_stage.yaml \
   --stage1-checkpoint outputs/qwen3vl-s1-lora/4b/relaunch-stage1-4b/checkpoints/best \
   --stage2-checkpoint outputs/qwen3vl-s2-lora/4b/relaunch-stage2-4b/checkpoints/best \
@@ -177,7 +177,7 @@ python scripts/infer_two_stage.py \
 如果只检查 Stage1：
 
 ```bash
-python scripts/infer_two_stage.py \
+python scripts/arrow/infer_two_stage.py \
   --config configs/infer/infer_two_stage.yaml \
   --stage1-checkpoint outputs/qwen3vl-s1-lora/4b/relaunch-stage1-4b/checkpoints/best \
   --stage1-model models/Qwen3-VL-4B-Instruct \

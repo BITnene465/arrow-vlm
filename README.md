@@ -109,7 +109,7 @@ uv pip install -e ".[gpu]"
 Raw LabelMe-style annotations can be converted into normalized JSONL files with:
 
 ```bash
-python scripts/prepare_data.py \
+python scripts/arrow/prepare_data.py \
   --raw-json-dir data/raw/json \
   --image-dir data/raw/figure \
   --output-dir data/processed
@@ -174,7 +174,7 @@ Two-stage experiments derive two datasets from the processed annotations:
 Prepare Stage1:
 
 ```bash
-python scripts/prepare_stage1_data.py \
+python scripts/arrow/prepare_stage1_data.py \
   --input-dir data/processed \
   --output-dir data/two_stage \
   --num-workers 8 \
@@ -190,7 +190,7 @@ python scripts/prepare_stage1_data.py \
 Prepare Stage2:
 
 ```bash
-python scripts/prepare_stage2_data.py \
+python scripts/arrow/prepare_stage2_data.py \
   --input-dir data/processed \
   --output-dir data/two_stage \
   --padding-ratio 0.3 \
@@ -404,7 +404,7 @@ Behavior:
 Run two-stage inference with:
 
 ```bash
-python scripts/infer_two_stage.py \
+python scripts/arrow/infer_two_stage.py \
   --config configs/infer/infer_two_stage.yaml \
   --stage1-checkpoint outputs/qwen3vl-s1-lora/4b/checkpoints/best \
   --stage2-checkpoint outputs/qwen3vl-s2-lora/4b/checkpoints/best \
@@ -458,7 +458,7 @@ python app/demo_two_stage.py \
 Run synthetic post-train first, then launch real-data SFT from the stage-1 checkpoint:
 
 ```bash
-python scripts/train_two_stage.py \
+python scripts/arrow/train_two_stage.py \
   --run-id 20260325-exp01 \
   --stage1-freeze-vision-tower false \
   --stage2-freeze-vision-tower true \
@@ -470,7 +470,7 @@ python scripts/train_two_stage.py \
 Use LoRA for stage 2 if needed:
 
 ```bash
-python scripts/train_two_stage.py \
+python scripts/arrow/train_two_stage.py \
   --run-id 20260325-exp01 \
   --stage1-config configs/train/train_sync_posttrain.yaml \
   --stage2-config configs/train/train_lora.yaml
@@ -479,7 +479,7 @@ python scripts/train_two_stage.py \
 Preview commands without starting training:
 
 ```bash
-python scripts/train_two_stage.py --dry-run
+python scripts/arrow/train_two_stage.py --dry-run
 ```
 
 With `--run-id`, the two stages are separated automatically, for example:
@@ -492,7 +492,7 @@ outputs/qwen3vl-ft/2b/20260325-exp01/stage2_real_sft
 Use multi-GPU launchers for both stages:
 
 ```bash
-python scripts/train_two_stage.py \
+python scripts/arrow/train_two_stage.py \
   --runner "torchrun --nproc_per_node=2"
 ```
 
@@ -524,7 +524,7 @@ cp .env.example .env
 Run inference with:
 
 ```bash
-python scripts/infer.py \
+python scripts/arrow/infer.py \
   --config configs/infer/infer_one_stage.yaml \
   --checkpoint outputs/your_experiment/checkpoints/best \
   --max-new-tokens 4096 \
@@ -539,7 +539,7 @@ This saves:
 or let the checkpoint fall back to `CHECKPOINT_PATH` in `.env`:
 
 ```bash
-python scripts/infer.py \
+python scripts/arrow/infer.py \
   --config configs/infer/infer_one_stage.yaml \
   --env-file /path/to/.env \
   --max-new-tokens 4096 \

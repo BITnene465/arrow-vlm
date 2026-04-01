@@ -140,12 +140,12 @@
 ### 真实数据
 
 - 入口：
-  - `scripts/prepare_data.py`
+  - `scripts/arrow/prepare_data.py`
 
 标准命令：
 
 ```bash
-python scripts/prepare_data.py \
+python scripts/arrow/prepare_data.py \
   --raw-json-dir data/raw/json \
   --image-dir data/raw/figure \
   --output-dir data/processed
@@ -159,9 +159,9 @@ python scripts/prepare_data.py \
 ### 两阶段数据
 
 - Stage1：
-  - `scripts/prepare_stage1_data.py`
+  - `scripts/arrow/prepare_stage1_data.py`
 - Stage2：
-  - `scripts/prepare_stage2_data.py`
+  - `scripts/arrow/prepare_stage2_data.py`
 
 Stage1 当前约定：
 
@@ -213,9 +213,9 @@ Stage2 当前约定：
 ## 当前推理入口
 
 - one-stage CLI：
-  - `scripts/infer.py`
+  - `scripts/arrow/infer.py`
 - two-stage CLI：
-  - `scripts/infer_two_stage.py`
+  - `scripts/arrow/infer_two_stage.py`
 - one-stage demo：
   - `app/demo.py`
 - two-stage demo：

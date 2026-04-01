@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 from PIL import Image
+from dotenv import load_dotenv
 
 from vlm_structgen.domains.arrow import draw_prediction, format_prediction_summary
 
@@ -15,8 +17,9 @@ IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run two-stage arrow inference on one image or a directory.")
     parser.add_argument("--config", default="configs/infer/infer_two_stage.yaml", help="Two-stage inference config path.")
-    parser.add_argument("--stage1-checkpoint", required=True)
+    parser.add_argument("--stage1-checkpoint", default=None)
     parser.add_argument("--stage2-checkpoint", default=None)
+    parser.add_argument("--env-file", default=None, help="Optional .env path for checkpoint fallback variables.")
     parser.add_argument("--stage1-model", default=None)
     parser.add_argument("--stage2-model", default=None)
     parser.add_argument("--device", default=None)
@@ -36,6 +39,34 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--output-dir", default=None)
     return parser.parse_args()
+
+
+def _load_env_file(env_file: str | None) -> None:
+    if env_file is None:
+        return
+    env_path = Path(env_file)
+    if not env_path.exists():
+        raise FileNotFoundError(f"Env file not found: {env_path}")
+    load_dotenv(dotenv_path=env_path, override=False)
+
+
+def _resolve_stage1_checkpoint(args: argparse.Namespace) -> str:
+    if args.stage1_checkpoint:
+        return str(args.stage1_checkpoint)
+    # Backward-compatible fallback for two-stage stage1 checkpoint.
+    fallback = os.getenv("STAGE1_CHECKPOINT_PATH") or os.getenv("CHECKPOINT_PATH")
+    if fallback:
+        return str(fallback)
+    raise ValueError(
+        "Stage1 checkpoint path is required. Pass --stage1-checkpoint or set STAGE1_CHECKPOINT_PATH/CHECKPOINT_PATH."
+    )
+
+
+def _resolve_stage2_checkpoint(args: argparse.Namespace) -> str | None:
+    if args.stage2_checkpoint:
+        return str(args.stage2_checkpoint)
+    fallback = os.getenv("STAGE2_CHECKPOINT_PATH")
+    return str(fallback) if fallback else None
 
 
 def _iter_image_paths(image_dir: Path, *, recursive: bool) -> list[Path]:
@@ -110,11 +141,15 @@ def main() -> None:
     from vlm_structgen.core.infer.config import load_two_stage_inference_config
     from vlm_structgen.domains.arrow import load_two_stage_inference_runner
 
+    _load_env_file(args.env_file)
+    stage1_checkpoint = _resolve_stage1_checkpoint(args)
+    stage2_checkpoint = _resolve_stage2_checkpoint(args)
+
     infer_config = load_two_stage_inference_config(args.config)
     runner = load_two_stage_inference_runner(
         config_path=args.config,
-        stage1_checkpoint_path=args.stage1_checkpoint,
-        stage2_checkpoint_path=args.stage2_checkpoint,
+        stage1_checkpoint_path=stage1_checkpoint,
+        stage2_checkpoint_path=stage2_checkpoint,
         device_name=args.device,
         stage1_model_name_or_path=args.stage1_model,
         stage2_model_name_or_path=args.stage2_model,

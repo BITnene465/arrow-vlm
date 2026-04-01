@@ -5,7 +5,7 @@
 先把原始 LabelMe 标注转成标准 `processed` 数据：
 
 ```bash
-python scripts/prepare_data.py \
+python scripts/arrow/prepare_data.py \
   --raw-json-dir data/raw/json \
   --image-dir data/raw/figure \
   --output-dir data/processed
@@ -31,7 +31,7 @@ Stage1 数据由三条线组成：
 命令：
 
 ```bash
-python scripts/prepare_stage1_data.py \
+python scripts/arrow/prepare_stage1_data.py \
   --input-dir data/processed \
   --output-dir data/two_stage \
   --num-workers 8 \
@@ -102,7 +102,7 @@ Stage2 数据是单目标 crop 数据集，训练时输出由 crop-local `label 
 命令：
 
 ```bash
-python scripts/prepare_stage2_data.py \
+python scripts/arrow/prepare_stage2_data.py \
   --input-dir data/processed \
   --output-dir data/two_stage \
   --padding-ratio 0.3 \
