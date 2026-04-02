@@ -22,3 +22,4 @@ llamafactory_qwen3vl_grounding/
 /wandb/
 /temp/
 experimental/
+/scripts/acc_exp/

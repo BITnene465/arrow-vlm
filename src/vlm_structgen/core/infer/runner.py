@@ -35,17 +35,27 @@ class InferenceRunner:
         *,
         max_new_tokens: int | None = None,
     ) -> tuple[str, dict[str, Any]]:
-        pil_image = image.convert("RGB")
-        width, height = pil_image.size
-        model_inputs, prompt_length = self._prepare_inputs(pil_image)
-        input_context_length = int(model_inputs["input_ids"].shape[1])
+        return self.predict_batch([image], max_new_tokens=max_new_tokens)[0]
+
+    def predict_batch(
+        self,
+        images: list[Image.Image],
+        *,
+        max_new_tokens: int | None = None,
+    ) -> list[tuple[str, dict[str, Any]]]:
+        if not images:
+            return []
+
+        pil_images = [image.convert("RGB") for image in images]
+        sizes = [pil_image.size for pil_image in pil_images]
+        model_inputs, prompt_lengths = self._prepare_batch_inputs(pil_images)
         raw_model = unwrap_model(self.artifacts.model)
         raw_model.eval()
         generate_kwargs = build_generate_kwargs(
             self.artifacts.tokenizer,
             generation_config=getattr(raw_model, "generation_config", None),
             num_bins=self.adapter.num_bins,
-            prompt_lengths=[prompt_length],
+            prompt_lengths=prompt_lengths,
             max_new_tokens=max_new_tokens or self.config.eval.max_new_tokens,
             num_beams=self.config.eval.num_beams,
             do_sample=self.config.eval.do_sample,
@@ -61,75 +71,92 @@ class InferenceRunner:
                 **model_inputs,
                 **generate_kwargs,
             )
-        continuation = output_ids[0, input_context_length:]
-        continuation_ids = continuation.tolist()
-        raw_continuation_text = self.artifacts.tokenizer.decode(continuation_ids, skip_special_tokens=False)
-        json_array_end = find_balanced_json_array_end(raw_continuation_text)
-        trimmed_ids = trim_generated_ids_at_eos(continuation, generate_kwargs.get("eos_token_id"))
-        decoded = self.artifacts.tokenizer.decode(trimmed_ids, skip_special_tokens=False)
-        strict_text = self.artifacts.tokenizer.decode(trimmed_ids, skip_special_tokens=True)
-        closed_json_array = json_array_end is not None
-        hit_max_new_tokens = len(continuation_ids) >= requested_max_new_tokens
+        reports: list[tuple[str, dict[str, Any]]] = []
+        input_context_length = int(model_inputs["input_ids"].shape[1])
+        for index, (width, height) in enumerate(sizes):
+            continuation = output_ids[index, input_context_length:]
+            continuation_ids = continuation.tolist()
+            raw_continuation_text = self.artifacts.tokenizer.decode(continuation_ids, skip_special_tokens=False)
+            json_array_end = find_balanced_json_array_end(raw_continuation_text)
+            trimmed_ids = trim_generated_ids_at_eos(continuation, generate_kwargs.get("eos_token_id"))
+            decoded = self.artifacts.tokenizer.decode(trimmed_ids, skip_special_tokens=False)
+            strict_text = self.artifacts.tokenizer.decode(trimmed_ids, skip_special_tokens=True)
+            closed_json_array = json_array_end is not None
+            effective_generated_tokens = len(trimmed_ids)
+            # In batched generation, finished rows are padded to the batch max length.
+            # Use effective (EOS-trimmed) length for per-sample stop statistics.
+            hit_max_new_tokens = effective_generated_tokens >= requested_max_new_tokens
 
-        lenient_prediction: dict[str, Any] | None = None
-        lenient_error: str | None = None
-        lenient_recovered_prefix = False
-        strict_error: str | None = None
-        try:
-            lenient_prediction, lenient_meta = self.adapter.decode_with_meta(
-                decoded,
-                image_width=width,
-                image_height=height,
-            )
-            lenient_recovered_prefix = bool(lenient_meta.get("recovered_prefix", False))
-        except Exception as exc:  # noqa: BLE001
-            lenient_error = str(exc)
-
-        if lenient_prediction is not None:
+            lenient_prediction: dict[str, Any] | None = None
+            lenient_error: str | None = None
+            lenient_recovered_prefix = False
+            strict_error: str | None = None
             try:
-                self.adapter.decode(
-                    strict_text,
+                lenient_prediction, lenient_meta = self.adapter.decode_with_meta(
+                    decoded,
                     image_width=width,
                     image_height=height,
-                    strict=True,
                 )
+                lenient_recovered_prefix = bool(lenient_meta.get("recovered_prefix", False))
             except Exception as exc:  # noqa: BLE001
-                strict_error = str(exc)
-        else:
-            strict_error = lenient_error
+                lenient_error = str(exc)
 
-        return decoded, {
-            "generation": {
-                "requested_max_new_tokens": requested_max_new_tokens,
-                "generated_tokens": len(continuation_ids),
-                "returned_tokens": len(trimmed_ids),
-                "hit_max_new_tokens": hit_max_new_tokens,
-                "closed_json_array": closed_json_array,
-                "stop_reason": (
-                    "max_new_tokens"
-                    if hit_max_new_tokens
-                    else "eos_or_unknown"
-                ),
-            },
-            "lenient": {
-                "ok": lenient_error is None,
-                "prediction": lenient_prediction,
-                "error": lenient_error,
-                "recovered_prefix": lenient_recovered_prefix,
-            },
-            "strict": {
-                "ok": strict_error is None,
-                "prediction": lenient_prediction if strict_error is None else None,
-                "error": strict_error,
-                "recovered_prefix": False,
-            },
-        }
+            if lenient_prediction is not None:
+                try:
+                    self.adapter.decode(
+                        strict_text,
+                        image_width=width,
+                        image_height=height,
+                        strict=True,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    strict_error = str(exc)
+            else:
+                strict_error = lenient_error
+
+            reports.append(
+                (
+                    decoded,
+                    {
+                        "generation": {
+                            "requested_max_new_tokens": requested_max_new_tokens,
+                            "generated_tokens": effective_generated_tokens,
+                            "returned_tokens": len(trimmed_ids),
+                            "hit_max_new_tokens": hit_max_new_tokens,
+                            "closed_json_array": closed_json_array,
+                            "stop_reason": (
+                                "max_new_tokens"
+                                if hit_max_new_tokens
+                                else "eos_or_unknown"
+                            ),
+                        },
+                        "lenient": {
+                            "ok": lenient_error is None,
+                            "prediction": lenient_prediction,
+                            "error": lenient_error,
+                            "recovered_prefix": lenient_recovered_prefix,
+                        },
+                        "strict": {
+                            "ok": strict_error is None,
+                            "prediction": lenient_prediction if strict_error is None else None,
+                            "error": strict_error,
+                            "recovered_prefix": False,
+                        },
+                    },
+                )
+            )
+        return reports
 
     def _prepare_inputs(self, image: Image.Image) -> tuple[dict[str, torch.Tensor], int]:
+        model_inputs, prompt_lengths = self._prepare_batch_inputs([image])
+        return model_inputs, int(prompt_lengths[0])
+
+    def _prepare_batch_inputs(self, images: list[Image.Image]) -> tuple[dict[str, torch.Tensor], list[int]]:
         prompt = self._build_prompt()
         processor_kwargs: dict[str, Any] = {
-            "text": [prompt],
-            "images": [image],
+            "text": [prompt] * len(images),
+            "images": images,
+            "padding": True,
             "return_tensors": "pt",
         }
         if self.config.model.min_pixels is not None:
@@ -138,12 +165,12 @@ class InferenceRunner:
             processor_kwargs["max_pixels"] = self.config.model.max_pixels
         with temporary_padding_side(self.artifacts.processor, self.artifacts.tokenizer, padding_side="left"):
             batch = self.artifacts.processor(**processor_kwargs)
-        prompt_length = int(batch["attention_mask"].sum(dim=1).item())
+        prompt_lengths = [int(value) for value in batch["attention_mask"].sum(dim=1).tolist()]
         model_inputs = {
             key: value.to(self.device) if hasattr(value, "to") else value
             for key, value in batch.items()
         }
-        return model_inputs, prompt_length
+        return model_inputs, prompt_lengths
 
     def _build_prompt(self) -> str:
         return build_chat_prompt(

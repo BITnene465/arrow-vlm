@@ -24,6 +24,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-new-tokens", type=int, default=None, help="Override max_new_tokens for evaluation run.")
     parser.add_argument("--bbox-iou-threshold", type=float, default=0.5, help="IoU threshold for TP/FP/FN matching.")
     parser.add_argument("--max-samples", type=int, default=None, help="Evaluate at most N samples from JSONL.")
+    parser.add_argument("--batch-size", type=int, default=1, help="Batch size for model generation.")
     parser.add_argument("--output-dir", required=True, help="Directory to write summary and per-sample outputs.")
     parser.add_argument(
         "--save-per-sample",
@@ -131,98 +132,113 @@ def main() -> None:
     parse_badcases: list[dict[str, Any]] = []
     metric_badcases: list[dict[str, Any]] = []
     counts = _empty_counts()
+    batch_size = max(int(args.batch_size), 1)
 
     progress = create_progress_bar(total=len(records), desc="eval s1", leave=True)
-    for record_index, record in enumerate(records, start=1):
-        task_type = str(record.get("task_type", ""))
-        domain_type = str(record.get("domain_type", ""))
-        if task_type != "grounding" or domain_type != "arrow":
-            raise ValueError(
-                "eval_stage1_grounding only accepts grounding/arrow records. "
-                f"sample_id={record.get('sample_id')!r}, task_type={task_type!r}, domain_type={domain_type!r}"
+    for batch_start in range(0, len(records), batch_size):
+        batch_records = records[batch_start : batch_start + batch_size]
+        batch_images: list[Image.Image] = []
+        batch_image_paths: list[Path] = []
+        for record in batch_records:
+            task_type = str(record.get("task_type", ""))
+            domain_type = str(record.get("domain_type", ""))
+            if task_type != "grounding" or domain_type != "arrow":
+                raise ValueError(
+                    "eval_stage1_grounding only accepts grounding/arrow records. "
+                    f"sample_id={record.get('sample_id')!r}, task_type={task_type!r}, domain_type={domain_type!r}"
+                )
+            image_path = _resolve_image_path(str(record.get("image_path", "")), jsonl_path=jsonl_path)
+            batch_image_paths.append(image_path)
+            batch_images.append(Image.open(image_path).convert("RGB"))
+
+        batch_predictions = runner.predict_batch(batch_images, max_new_tokens=args.max_new_tokens)
+
+        for batch_index, (record, image_path, image, prediction) in enumerate(
+            zip(batch_records, batch_image_paths, batch_images, batch_predictions, strict=False),
+            start=1,
+        ):
+            record_index = batch_start + batch_index
+            raw_text, parse_report = prediction
+
+            strict_ok = bool(parse_report["strict"]["ok"])
+            lenient_ok = bool(parse_report["lenient"]["ok"])
+            pred_struct = parse_report["strict"]["prediction"] if strict_ok else parse_report["lenient"]["prediction"]
+            if pred_struct is None:
+                pred_struct = adapter.empty_prediction()
+
+            gt_struct = adapter.build_gt_struct_from_record(record)
+            local_counts = adapter.score_prediction(
+                gt_struct,
+                pred_struct,
+                bbox_iou_threshold=float(args.bbox_iou_threshold),
+                strict_point_distance_px=8.0,
             )
 
-        image_path = _resolve_image_path(str(record.get("image_path", "")), jsonl_path=jsonl_path)
-        image = Image.open(image_path).convert("RGB")
-        raw_text, parse_report = runner.predict(image, max_new_tokens=args.max_new_tokens)
+            counts["samples"] += 1.0
+            if lenient_ok:
+                counts["parse_success_lenient"] += 1.0
+            if strict_ok:
+                counts["parse_success_strict"] += 1.0
+            counts["bbox_tp"] += float(local_counts.get("bbox_tp", 0.0))
+            counts["bbox_fp"] += float(local_counts.get("bbox_fp", 0.0))
+            counts["bbox_fn"] += float(local_counts.get("bbox_fn", 0.0))
+            counts["bbox_iou_sum"] += float(local_counts.get("bbox_iou_sum", 0.0))
 
-        strict_ok = bool(parse_report["strict"]["ok"])
-        lenient_ok = bool(parse_report["lenient"]["ok"])
-        pred_struct = parse_report["strict"]["prediction"] if strict_ok else parse_report["lenient"]["prediction"]
-        if pred_struct is None:
-            pred_struct = adapter.empty_prediction()
+            generation = dict(parse_report.get("generation", {}))
+            counts["generated_tokens"] += float(generation.get("generated_tokens", 0.0))
+            counts["returned_tokens"] += float(generation.get("returned_tokens", 0.0))
+            counts["hit_max_new_tokens"] += 1.0 if bool(generation.get("hit_max_new_tokens", False)) else 0.0
+            counts["closed_json_array"] += 1.0 if bool(generation.get("closed_json_array", False)) else 0.0
 
-        gt_struct = adapter.build_gt_struct_from_record(record)
-        local_counts = adapter.score_prediction(
-            gt_struct,
-            pred_struct,
-            bbox_iou_threshold=float(args.bbox_iou_threshold),
-            strict_point_distance_px=8.0,
-        )
+            row = {
+                "sample_id": record.get("sample_id"),
+                "source_sample_id": record.get("source_sample_id"),
+                "source_type": record.get("source_type"),
+                "image_path": str(image_path),
+                "task_type": str(record.get("task_type", "")),
+                "domain_type": str(record.get("domain_type", "")),
+                "parse_lenient_ok": lenient_ok,
+                "parse_strict_ok": strict_ok,
+                "parse_lenient_error": parse_report["lenient"].get("error"),
+                "parse_strict_error": parse_report["strict"].get("error"),
+                "generation": generation,
+                "gt_instances": int(len(gt_struct.get("instances", []))),
+                "pred_instances": int(len(pred_struct.get("instances", []))),
+                "bbox_tp": float(local_counts.get("bbox_tp", 0.0)),
+                "bbox_fp": float(local_counts.get("bbox_fp", 0.0)),
+                "bbox_fn": float(local_counts.get("bbox_fn", 0.0)),
+                "bbox_iou_sum": float(local_counts.get("bbox_iou_sum", 0.0)),
+                "raw_text": raw_text,
+                "prediction": pred_struct,
+            }
 
-        counts["samples"] += 1.0
-        if lenient_ok:
-            counts["parse_success_lenient"] += 1.0
-        if strict_ok:
-            counts["parse_success_strict"] += 1.0
-        counts["bbox_tp"] += float(local_counts.get("bbox_tp", 0.0))
-        counts["bbox_fp"] += float(local_counts.get("bbox_fp", 0.0))
-        counts["bbox_fn"] += float(local_counts.get("bbox_fn", 0.0))
-        counts["bbox_iou_sum"] += float(local_counts.get("bbox_iou_sum", 0.0))
+            if vis_dir is not None:
+                sample_id = str(record.get("sample_id") or Path(image_path).stem)
+                vis_path = vis_dir / f"{record_index:05d}_{sample_id}.png"
+                draw_prediction(image, pred_struct).save(vis_path)
+                row["visualization_path"] = str(vis_path)
 
-        generation = dict(parse_report.get("generation", {}))
-        counts["generated_tokens"] += float(generation.get("generated_tokens", 0.0))
-        counts["returned_tokens"] += float(generation.get("returned_tokens", 0.0))
-        counts["hit_max_new_tokens"] += 1.0 if bool(generation.get("hit_max_new_tokens", False)) else 0.0
-        counts["closed_json_array"] += 1.0 if bool(generation.get("closed_json_array", False)) else 0.0
+            if args.save_per_sample:
+                per_sample_rows.append(row)
 
-        row = {
-            "sample_id": record.get("sample_id"),
-            "source_sample_id": record.get("source_sample_id"),
-            "source_type": record.get("source_type"),
-            "image_path": str(image_path),
-            "task_type": task_type,
-            "domain_type": domain_type,
-            "parse_lenient_ok": lenient_ok,
-            "parse_strict_ok": strict_ok,
-            "parse_lenient_error": parse_report["lenient"].get("error"),
-            "parse_strict_error": parse_report["strict"].get("error"),
-            "generation": generation,
-            "gt_instances": int(len(gt_struct.get("instances", []))),
-            "pred_instances": int(len(pred_struct.get("instances", []))),
-            "bbox_tp": float(local_counts.get("bbox_tp", 0.0)),
-            "bbox_fp": float(local_counts.get("bbox_fp", 0.0)),
-            "bbox_fn": float(local_counts.get("bbox_fn", 0.0)),
-            "bbox_iou_sum": float(local_counts.get("bbox_iou_sum", 0.0)),
-            "raw_text": raw_text,
-            "prediction": pred_struct,
-        }
+            if not lenient_ok:
+                parse_badcases.append(row)
 
-        if vis_dir is not None:
-            sample_id = str(record.get("sample_id") or Path(image_path).stem)
-            vis_path = vis_dir / f"{record_index:05d}_{sample_id}.png"
-            draw_prediction(image, pred_struct).save(vis_path)
-            row["visualization_path"] = str(vis_path)
+            error_score = float(local_counts.get("bbox_fp", 0.0) + local_counts.get("bbox_fn", 0.0))
+            metric_badcases.append({**row, "metric_error_score": error_score})
 
-        if args.save_per_sample:
-            per_sample_rows.append(row)
+            if progress is not None:
+                samples = max(counts["samples"], 1.0)
+                progress.set_postfix(
+                    {
+                        "parseS": f"{counts['parse_success_strict'] / samples:.2f}",
+                        "p": f"{counts['bbox_tp'] / max(counts['bbox_tp'] + counts['bbox_fp'], 1.0):.2f}",
+                        "r": f"{counts['bbox_tp'] / max(counts['bbox_tp'] + counts['bbox_fn'], 1.0):.2f}",
+                    }
+                )
+                progress.update(1)
 
-        if not lenient_ok:
-            parse_badcases.append(row)
-
-        error_score = float(local_counts.get("bbox_fp", 0.0) + local_counts.get("bbox_fn", 0.0))
-        metric_badcases.append({**row, "metric_error_score": error_score})
-
-        if progress is not None:
-            samples = max(counts["samples"], 1.0)
-            progress.set_postfix(
-                {
-                    "parseS": f"{counts['parse_success_strict'] / samples:.2f}",
-                    "p": f"{counts['bbox_tp'] / max(counts['bbox_tp'] + counts['bbox_fp'], 1.0):.2f}",
-                    "r": f"{counts['bbox_tp'] / max(counts['bbox_tp'] + counts['bbox_fn'], 1.0):.2f}",
-                }
-            )
-            progress.update(1)
+            image.close()
 
     if progress is not None:
         progress.close()
