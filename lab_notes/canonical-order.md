@@ -4,7 +4,7 @@
 
 当前项目的做法是：
 
-- 在数据准备和 synthetic 导出阶段就把 instance 顺序固定下来
+- 在数据准备阶段就把 instance 顺序固定下来
 - dataset 只忠实读取 JSONL，不再在运行时改写图内 instance 顺序
 - train dataloader 只负责样本级 shuffle，不碰单张图内部顺序
 
@@ -14,6 +14,5 @@
 
 实现位置：
 
-- `src/vlm_det/data/ordering.py`
-- `src/vlm_det/data/prepare.py`
-- `synthetic_pipeline/schema.py`
+- `src/vlm_structgen/domains/arrow/data/ordering.py`
+- `scripts/arrow/prepare_data.py`

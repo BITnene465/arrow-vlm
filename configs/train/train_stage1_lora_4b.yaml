@@ -28,7 +28,7 @@ task:
   domain_type: arrow
   route_options:
     grounding/arrow:
-      bbox_token_loss_weight: 1.5
+      bbox_token_loss_weight: 1.0
       label_token_loss_weight: 1.0
 
 prompt:
@@ -41,7 +41,7 @@ prompt:
 data:
   train_path: data/two_stage/stage1/train.jsonl
   val_path: data/two_stage/stage1/val.jsonl
-  num_workers: 12
+  num_workers: 16
   pin_memory: true
   persistent_workers: true
 
@@ -50,7 +50,7 @@ finetune:
 
 lora:
   enabled: true
-  r: 32
+  r: 64
   alpha: 64
   dropout: 0.05
   bias: none
@@ -77,11 +77,11 @@ train:
   per_device_batch_size: 4
   grad_accum_steps: 2
   gradient_checkpointing: true
-  learning_rate: 0.00008
-  embed_learning_rate: 0.00008
-  lm_head_learning_rate: 0.00008
-  lora_learning_rate: 0.00015
-  weight_decay: 0.02
+  learning_rate: 0.00002
+  embed_learning_rate: 0.00002
+  lm_head_learning_rate: 0.00002
+  lora_learning_rate: 0.00004
+  weight_decay: 0.015
   warmup_ratio: 0.1
   scheduler_type: cosine
   max_grad_norm: 1.0

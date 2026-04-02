@@ -54,7 +54,7 @@
 关键原则：
 
 - 仓库内部只长期维护**标准 JSONL 格式**
-- 各种外部原始格式、一次性 synthetic / sync 中间产物，应由二次开发人员在仓库外先转换，再交给当前源码
+- 各种外部原始格式和一次性中间产物，应由二次开发人员在仓库外先转换，再交给当前源码
 
 当前三类正式数据：
 
@@ -207,8 +207,6 @@ Stage2 当前约定：
 - Stage2：
   - `configs/train/train_stage2_lora.yaml`
   - `configs/train/train_stage2_lora_4b.yaml`
-- synthetic post-train：
-  - `configs/train/train_sync_posttrain.yaml`
 
 ## 辅助脚本文档
 

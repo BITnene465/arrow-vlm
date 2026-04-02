@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from PIL import Image, ImageDraw
+
+from vlm_structgen.core.utils.logging import get_vlm_logger
 
 
 PALETTE = [
@@ -16,6 +19,26 @@ PALETTE = [
     "#588157",
 ]
 
+LOGGER = get_vlm_logger()
+
+
+def _normalize_bbox(raw_bbox: list[Any]) -> tuple[float, float, float, float] | None:
+    if len(raw_bbox) != 4:
+        return None
+    try:
+        x1, y1, x2, y2 = [float(value) for value in raw_bbox]
+    except (TypeError, ValueError):
+        return None
+    if not all(math.isfinite(value) for value in (x1, y1, x2, y2)):
+        return None
+    left = min(x1, x2)
+    right = max(x1, x2)
+    top = min(y1, y2)
+    bottom = max(y1, y2)
+    if right <= left or bottom <= top:
+        return None
+    return (left, top, right, bottom)
+
 
 def draw_prediction(image: Image.Image, prediction: dict[str, Any]) -> Image.Image:
     canvas = image.convert("RGB").copy()
@@ -24,25 +47,54 @@ def draw_prediction(image: Image.Image, prediction: dict[str, Any]) -> Image.Ima
         color = PALETTE[index % len(PALETTE)]
         label = str(instance.get("label", "unknown"))
         stage2_status = str(instance.get("stage2_status", ""))
-        bbox = [float(value) for value in instance.get("bbox", [])]
-        if len(bbox) == 4:
-            outline_color = "#808080" if stage2_status == "failed" else color
+        raw_bbox = list(instance.get("bbox", []))
+        bbox = _normalize_bbox(raw_bbox)
+        outline_color = "#808080" if stage2_status == "failed" else color
+        if bbox is not None:
             draw.rectangle(bbox, outline=outline_color, width=3)
+        else:
+            LOGGER.warning(
+                "draw_prediction skip invalid bbox: index=%s label=%s bbox=%s",
+                index,
+                label,
+                raw_bbox,
+            )
         keypoints = instance.get("keypoints", [])
-        xy_points = [(float(point[0]), float(point[1])) for point in keypoints]
+        xy_points = []
+        invalid_point_count = 0
+        for point in keypoints:
+            if not isinstance(point, (list, tuple)) or len(point) < 2:
+                invalid_point_count += 1
+                continue
+            try:
+                x = float(point[0])
+                y = float(point[1])
+            except (TypeError, ValueError):
+                invalid_point_count += 1
+                continue
+            if not (math.isfinite(x) and math.isfinite(y)):
+                invalid_point_count += 1
+                continue
+            xy_points.append((x, y))
+        if invalid_point_count > 0:
+            LOGGER.warning(
+                "draw_prediction skipped invalid keypoints: index=%s label=%s invalid=%s total=%s",
+                index,
+                label,
+                invalid_point_count,
+                len(keypoints),
+            )
         if len(xy_points) >= 2:
             draw.line(xy_points, fill=color, width=3)
-        for point_index, point in enumerate(keypoints):
-            x = float(point[0])
-            y = float(point[1])
+        for point_index, (x, y) in enumerate(xy_points):
             draw.ellipse((x - 5, y - 5, x + 5, y + 5), fill=color, outline=color, width=2)
             if point_index == 0:
                 draw.text((x + 6, y - 12), "K0", fill=color)
-            elif point_index == len(keypoints) - 1:
+            elif point_index == len(xy_points) - 1:
                 draw.text((x + 6, y - 12), "K-1", fill=color)
-        if len(bbox) == 4:
+        if bbox is not None:
             suffix = " [S2 fail]" if stage2_status == "failed" else ""
-            draw.text((bbox[0] + 4, bbox[1] + 4), f"{label} {index + 1}{suffix}", fill=outline_color if len(bbox) == 4 else color)
+            draw.text((bbox[0] + 4, bbox[1] + 4), f"{label} {index + 1}{suffix}", fill=outline_color)
     return canvas
 
 

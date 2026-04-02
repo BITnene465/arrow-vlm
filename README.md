@@ -70,7 +70,6 @@ That formulation was harder to train and drifted away from the official `Qwen3-V
 configs/              training configs
 scripts/              preparation, training, inference, and utility entrypoints
 src/vlm_structgen/          core package
-synthetic_pipeline/   synthetic data generation
 data/                 raw and processed datasets
 models/               local model weights
 ```
@@ -141,7 +140,7 @@ instance order to keep training targets deterministic. The sort key is:
   left-to-right, with endpoint coordinates and point count used only as
   tie-breakers
 
-Keypoint semantics are fixed across real and synthetic data:
+Keypoint semantics are fixed across current datasets:
 
 - `single_arrow`: first keypoint = tail point, last keypoint = head tip
 - `double_arrow`: first keypoint and last keypoint = the two head tips
@@ -246,31 +245,6 @@ More detailed usage is documented in:
 - [docs/refactor_relaunch.md](/home/tanjingyuan/code/arrow-vlm/docs/refactor_relaunch.md)
 - [docs/developer_task_extension.md](/home/tanjingyuan/code/arrow-vlm/docs/developer_task_extension.md)
 
-## Synthetic Post-Training Data
-
-Synthetic data generation lives under:
-
-- [synthetic_pipeline/README.md](/Users/nene/codespace/PGstudy/mess_work/vlm_structgen/synthetic_pipeline/README.md)
-
-The synthetic pipeline writes directly to:
-
-```text
-data/sync/
-  images/
-    train/
-    val/
-  train.jsonl
-  val.jsonl
-  manifest.json
-```
-
-Those files are directly consumable by the existing training stack.
-
-Synthetic records are also canonicalized before export with the same
-instance-order rule:
-
-- `(y1, x1, y2, x2, y_tail, x_tail, y_head, x_head, n_points)`
-
 ## Training
 
 ### Single-GPU LoRA
@@ -314,12 +288,6 @@ python scripts/train.py \
 
 ```bash
 python scripts/train.py --config configs/train/train_full_ft.yaml
-```
-
-### Single-GPU Synthetic Post-Training
-
-```bash
-python scripts/train.py --config configs/train/train_sync_posttrain.yaml
 ```
 
 ### Multi-GPU
