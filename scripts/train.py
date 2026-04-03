@@ -162,7 +162,7 @@ def main() -> None:
         min_pixels=config.model.min_pixels,
         max_pixels=config.model.max_pixels,
         include_targets_in_inputs=False,
-        padding_side="left",
+        padding_side="left",  # decoder-only models typically benefit from left-padding during evaluation for better efficiency
     )
     print("[startup] loading datasets...", flush=True)
     train_dataset = SFTDataset(

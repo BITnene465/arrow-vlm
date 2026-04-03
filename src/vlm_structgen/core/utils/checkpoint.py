@@ -59,30 +59,11 @@ def load_training_checkpoint(
     optimizer: torch.optim.Optimizer | None = None,
     scheduler: Any = None,
     strict: bool = True,
-    allow_partial_by_shape: bool = False,
     resume_training_state: bool = True,
 ) -> dict[str, Any]:
     checkpoint_dir = Path(checkpoint_dir)
     state_dict = torch.load(checkpoint_dir / "model" / "state_dict.pt", map_location="cpu")
-    target_model = unwrap_model(model)
-    if allow_partial_by_shape:
-        target_state_dict = target_model.state_dict()
-        filtered_state_dict: dict[str, torch.Tensor] = {}
-        skipped_missing_or_mismatch = 0
-        for key, value in state_dict.items():
-            target_value = target_state_dict.get(key)
-            if target_value is None or target_value.shape != value.shape:
-                skipped_missing_or_mismatch += 1
-                continue
-            filtered_state_dict[key] = value
-        target_model.load_state_dict(filtered_state_dict, strict=False)
-        print(
-            "[checkpoint] partial load enabled: "
-            f"loaded={len(filtered_state_dict)}, skipped={skipped_missing_or_mismatch}",
-            flush=True,
-        )
-    else:
-        target_model.load_state_dict(state_dict, strict=strict)
+    unwrap_model(model).load_state_dict(state_dict, strict=strict)
 
     trainer_state = {}
     trainer_state_path = checkpoint_dir / "trainer_state.json"

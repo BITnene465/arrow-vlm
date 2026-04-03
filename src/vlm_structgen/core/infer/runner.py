@@ -195,7 +195,6 @@ def load_inference_runner(
     env_file: str | Path | None = None,
     model_name_or_path: str | None = None,
     device_name: str | None = None,
-    quant_mode: str | None = None,
 ) -> InferenceRunner:
     if infer_config is None:
         settings = load_inference_settings(
@@ -216,19 +215,15 @@ def load_inference_runner(
         config.model.model_name_or_path = model_name_or_path
         config.model.remote_model_name_or_path = model_name_or_path
 
-    artifacts = build_model_tokenizer_processor(config, quant_mode=quant_mode)
+    artifacts = build_model_tokenizer_processor(config)
     device = _resolve_device(device_name or settings.device)
-    quant_mode_normalized = (quant_mode or "").strip().lower()
-    is_runtime_quantized = quant_mode_normalized in {"int8", "8bit", "int4", "4bit"}
-    if not is_runtime_quantized:
-        artifacts.model = artifacts.model.to(device)
+    artifacts.model = artifacts.model.to(device)
     load_training_checkpoint(
         checkpoint_dir=settings.checkpoint_path,
         model=artifacts.model,
         tokenizer=artifacts.tokenizer,
         processor=artifacts.processor,
-        strict=not is_runtime_quantized,
-        allow_partial_by_shape=is_runtime_quantized,
+        strict=True,
         resume_training_state=False,
     )
     unwrap_model(artifacts.model).eval()

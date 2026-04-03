@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import time
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +21,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--env-file", default=None, help="Optional path to a .env file for checkpoint fallback.")
     parser.add_argument("--model", default=None, help="Optional model path/name override.")
     parser.add_argument("--device", default=None, help="Optional torch device override, e.g. cuda:0 or cpu.")
-    parser.add_argument("--quant-mode", default="none", choices=["none", "int8", "int4"], help="Runtime quantization mode for inference model loading.")
     parser.add_argument("--jsonl", default="data/two_stage/stage1/val_full.jsonl", help="Grounding dataset JSONL path.")
     parser.add_argument("--max-new-tokens", type=int, default=None, help="Override max_new_tokens for evaluation run.")
     parser.add_argument("--bbox-iou-threshold", type=float, default=0.5, help="IoU threshold for TP/FP/FN matching.")
@@ -106,6 +106,7 @@ def _summarize(counts: dict[str, float], *, iou_threshold: float) -> dict[str, f
 
 
 def main() -> None:
+    wall_start = time.perf_counter()
     args = parse_args()
     jsonl_path = Path(args.jsonl)
     records = load_jsonl(jsonl_path)
@@ -114,19 +115,20 @@ def main() -> None:
     if not records:
         raise ValueError(f"No records to evaluate: {jsonl_path}")
 
+    load_start = time.perf_counter()
     runner = load_inference_runner(
         checkpoint_path=args.checkpoint,
         config_path=args.config,
         env_file=args.env_file,
         model_name_or_path=args.model,
         device_name=args.device,
-        quant_mode=args.quant_mode,
     )
     adapter = get_adapter(
         task_type="grounding",
         domain_type="arrow",
         num_bins=runner.config.tokenizer.num_bins,
     )
+    load_end = time.perf_counter()
 
     output_dir = ensure_dir(args.output_dir)
     vis_dir = ensure_dir(output_dir / "visualizations") if args.save_visualizations else None
@@ -135,6 +137,8 @@ def main() -> None:
     metric_badcases: list[dict[str, Any]] = []
     counts = _empty_counts()
     batch_size = max(int(args.batch_size), 1)
+    eval_loop_start = time.perf_counter()
+    inference_only_seconds = 0.0
 
     progress = create_progress_bar(total=len(records), desc="eval s1", leave=True)
     for batch_start in range(0, len(records), batch_size):
@@ -153,7 +157,9 @@ def main() -> None:
             batch_image_paths.append(image_path)
             batch_images.append(Image.open(image_path).convert("RGB"))
 
+        infer_start = time.perf_counter()
         batch_predictions = runner.predict_batch(batch_images, max_new_tokens=args.max_new_tokens)
+        inference_only_seconds += max(time.perf_counter() - infer_start, 0.0)
 
         for batch_index, (record, image_path, image, prediction) in enumerate(
             zip(batch_records, batch_image_paths, batch_images, batch_predictions, strict=False),
@@ -245,6 +251,33 @@ def main() -> None:
     if progress is not None:
         progress.close()
 
+    eval_loop_end = time.perf_counter()
+    wall_end = time.perf_counter()
+
+    startup_seconds = max(eval_loop_start - wall_start, 0.0)
+    model_load_seconds = max(load_end - load_start, 0.0)
+    evaluation_loop_seconds = max(eval_loop_end - eval_loop_start, 0.0)
+    end_to_end_seconds = max(wall_end - wall_start, 0.0)
+    postprocess_and_io_seconds = max(evaluation_loop_seconds - inference_only_seconds, 0.0)
+    samples = float(max(counts["samples"], 0.0))
+    runtime = {
+        "startup_seconds": startup_seconds,
+        "model_load_seconds": model_load_seconds,
+        "evaluation_loop_seconds": evaluation_loop_seconds,
+        "inference_only_seconds": inference_only_seconds,
+        "postprocess_and_io_seconds": postprocess_and_io_seconds,
+        "end_to_end_seconds": end_to_end_seconds,
+        "samples_per_second_excluding_startup": (
+            samples / evaluation_loop_seconds if samples > 0.0 and evaluation_loop_seconds > 0.0 else 0.0
+        ),
+        "samples_per_second_inference_only": (
+            samples / inference_only_seconds if samples > 0.0 and inference_only_seconds > 0.0 else 0.0
+        ),
+        "samples_per_second_end_to_end": (
+            samples / end_to_end_seconds if samples > 0.0 and end_to_end_seconds > 0.0 else 0.0
+        ),
+    }
+
     summary = _summarize(counts, iou_threshold=float(args.bbox_iou_threshold))
     summary_payload = {
         "jsonl": str(jsonl_path),
@@ -252,6 +285,7 @@ def main() -> None:
         "config": str(args.config),
         "iou_threshold": float(args.bbox_iou_threshold),
         "metrics": summary,
+        "runtime": runtime,
     }
     write_json(output_dir / "summary.json", summary_payload)
 
