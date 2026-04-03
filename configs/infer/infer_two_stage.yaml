@@ -40,7 +40,7 @@ stage2:
       Return the skeleton of this target arrow only.
       For single_arrow, output the skeleton from tail to head.
       For double_arrow, output the skeleton from the upper-left head to the other head.
-  batch_size: 4
+  batch_size: 16
   eval:
     max_new_tokens: 256
     num_beams: 1

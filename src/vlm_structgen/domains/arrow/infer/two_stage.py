@@ -298,6 +298,8 @@ class TwoStageInferenceRunner:
     def _aggregate_stage1_instances(
         self,
         branch_predictions: list[dict[str, Any]],
+        *,
+        dedup_across_sources: bool,
     ) -> list[dict[str, Any]]:
         infer_cfg = getattr(self, "infer_config", None)
         dedup_iou_threshold = 0.65
@@ -322,6 +324,17 @@ class TwoStageInferenceRunner:
                     }
                 )
 
+        if not dedup_across_sources:
+            return [
+                {
+                    "label": str(item.get("label", "")),
+                    "bbox": [float(value) for value in item.get("bbox", [])],
+                    "keypoints": [],
+                }
+                for item in proposals
+                if len(item.get("bbox", [])) == 4
+            ]
+
         proposals.sort(
             key=lambda item: (
                 0 if str(item.get("_source_type", "")).startswith("tile_") else 1,
@@ -335,7 +348,10 @@ class TwoStageInferenceRunner:
         for proposal in proposals:
             label = str(proposal.get("label", ""))
             bbox = proposal.get("bbox", [])
+            source_type = str(proposal.get("_source_type", ""))
             if any(
+                str(existing.get("_source_type", "")) != source_type
+                and
                 str(existing.get("label", "")) == label
                 and _bbox_iou(existing.get("bbox", []), bbox) >= dedup_iou_threshold
                 for existing in deduped
@@ -346,9 +362,17 @@ class TwoStageInferenceRunner:
                     "label": label,
                     "bbox": [float(value) for value in bbox],
                     "keypoints": [],
+                    "_source_type": source_type,
                 }
             )
-        return deduped
+        return [
+            {
+                "label": str(item.get("label", "")),
+                "bbox": [float(value) for value in item.get("bbox", [])],
+                "keypoints": [],
+            }
+            for item in deduped
+        ]
 
     def _predict_stage1(self, image: Image.Image, *, max_new_tokens: int | None = None) -> tuple[str, dict[str, Any], dict[str, Any]]:
         return self._predict_stage1_with_options(
@@ -407,7 +431,16 @@ class TwoStageInferenceRunner:
                     }
                 )
 
-        aggregated_instances = self._aggregate_stage1_instances(branch_predictions)
+        # In no-mixed mode, return full-image branch output directly with no extra dedup/post-processing.
+        if not enable_mixed_proposals and len(branch_predictions) == 1 and branch_predictions[0]["crop_box"] is None:
+            full_branch = branch_predictions[0]
+            full_prediction = full_branch.get("prediction") or {"instances": []}
+            return str(full_branch.get("raw_text", "")), full_branch["report"], full_prediction
+
+        aggregated_instances = self._aggregate_stage1_instances(
+            branch_predictions,
+            dedup_across_sources=enable_mixed_proposals,
+        )
         aggregated_prediction = {"instances": aggregated_instances}
         stage1_report = {
             "generation": {
