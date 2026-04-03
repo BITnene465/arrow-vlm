@@ -20,6 +20,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--env-file", default=None, help="Optional path to a .env file for checkpoint fallback.")
     parser.add_argument("--model", default=None, help="Optional model path/name override.")
     parser.add_argument("--device", default=None, help="Optional torch device override, e.g. cuda:0 or cpu.")
+    parser.add_argument("--quant-mode", default="none", choices=["none", "int8", "int4"], help="Runtime quantization mode for inference model loading.")
     parser.add_argument("--jsonl", default="data/two_stage/stage1/val_full.jsonl", help="Grounding dataset JSONL path.")
     parser.add_argument("--max-new-tokens", type=int, default=None, help="Override max_new_tokens for evaluation run.")
     parser.add_argument("--bbox-iou-threshold", type=float, default=0.5, help="IoU threshold for TP/FP/FN matching.")
@@ -119,6 +120,7 @@ def main() -> None:
         env_file=args.env_file,
         model_name_or_path=args.model,
         device_name=args.device,
+        quant_mode=args.quant_mode,
     )
     adapter = get_adapter(
         task_type="grounding",

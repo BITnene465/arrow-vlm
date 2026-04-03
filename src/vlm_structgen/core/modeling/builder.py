@@ -8,7 +8,7 @@ from typing import Any
 
 import torch
 from peft import LoraConfig, TaskType, get_peft_model
-from transformers import AutoProcessor, AutoTokenizer
+from transformers import AutoProcessor, AutoTokenizer, BitsAndBytesConfig
 
 from vlm_structgen.core.config import ExperimentRuntimeConfig
 
@@ -155,7 +155,11 @@ def _maybe_enable_gradient_checkpointing(model: torch.nn.Module, config: Experim
     print("[builder] gradient checkpointing enabled.", flush=True)
 
 
-def build_model_tokenizer_processor(config: ExperimentRuntimeConfig) -> BuildArtifacts:
+def build_model_tokenizer_processor(
+    config: ExperimentRuntimeConfig,
+    *,
+    quant_mode: str | None = None,
+) -> BuildArtifacts:
     if config.finetune.mode not in {"lora", "full"}:
         raise ValueError(
             f"Unsupported finetune.mode={config.finetune.mode!r}. Expected 'lora' or 'full'."
@@ -170,6 +174,22 @@ def build_model_tokenizer_processor(config: ExperimentRuntimeConfig) -> BuildArt
     }
     if dtype is not None:
         model_kwargs["torch_dtype"] = dtype
+    quant_mode = (quant_mode or "").strip().lower() or None
+    if quant_mode in {"int8", "8bit"}:
+        model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
+        model_kwargs.pop("torch_dtype", None)
+    elif quant_mode in {"int4", "4bit"}:
+        model_kwargs["quantization_config"] = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+        )
+        model_kwargs.pop("torch_dtype", None)
+    elif quant_mode in {None, "none"}:
+        pass
+    else:
+        raise ValueError(f"Unsupported quant_mode={quant_mode!r}. Expected none/int8/int4.")
     attn_implementation = _resolve_attn_implementation(config)
     if attn_implementation:
         model_kwargs["attn_implementation"] = attn_implementation
